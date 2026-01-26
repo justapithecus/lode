@@ -5,9 +5,8 @@ Requirements:
 
 Setup:
   mise install
-  task bootstrap
 
 Common tasks:
   task test
   task lint
-
+  task fmt
