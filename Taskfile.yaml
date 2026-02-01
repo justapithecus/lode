@@ -1,23 +1,18 @@
 version: "3"
 
 tasks:
-  fmt:
+  format:
     desc: Format and auto-fix code
+    aliases: [fmt]
     cmds:
-      - golangci-lint run --fix
+      - golangci-lint run --fix ./...
 
   lint:
     desc: Run linters (no fixes)
     cmds:
-      - golangci-lint run
+      - golangci-lint run ./...
 
   test:
     desc: Run tests
     cmds:
       - go test ./...
-
-  default:
-    cmds:
-      - task: lint
-      - task: test
-
