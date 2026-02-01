@@ -16,6 +16,14 @@ import (
 // ErrInvalidPath indicates a path that would escape the storage root.
 var ErrInvalidPath = errors.New("invalid path: escapes storage root")
 
+// SizedReaderAt combines io.ReaderAt with size information.
+// This interface is implemented by FSReaderAt and MemoryReaderAt.
+type SizedReaderAt interface {
+	io.ReaderAt
+	io.Closer
+	Size() int64
+}
+
 // FS implements lode.Store using the local filesystem.
 //
 // Consistency: Immediate read-after-write on local filesystems.
@@ -213,11 +221,11 @@ func (f *FS) ReadRange(_ context.Context, path string, offset int64, length int6
 }
 
 // ReaderAt returns a random-access reader for the file at the given path.
-// The returned FSReaderAt supports efficient random access via io.ReaderAt.
+// The returned SizedReaderAt supports efficient random access via io.ReaderAt.
 // The caller must close the reader when done.
 // Returns ErrNotFound if the path does not exist.
 // Returns ErrInvalidPath if the path would escape the storage root or is empty.
-func (f *FS) ReaderAt(_ context.Context, path string) (*FSReaderAt, error) {
+func (f *FS) ReaderAt(_ context.Context, path string) (SizedReaderAt, error) {
 	fullPath, err := f.safePathForFile(path)
 	if err != nil {
 		return nil, err
@@ -522,11 +530,11 @@ func (m *Memory) ReadRange(_ context.Context, path string, offset int64, length 
 }
 
 // ReaderAt returns a random-access reader for the data at the given path.
-// The returned MemoryReaderAt supports efficient random access.
+// The returned SizedReaderAt supports efficient random access.
 // The caller must close the reader when done (idempotent).
 // Returns ErrNotFound if the path does not exist.
 // Returns ErrInvalidPath if the path is empty or contains traversal sequences.
-func (m *Memory) ReaderAt(_ context.Context, path string) (*MemoryReaderAt, error) {
+func (m *Memory) ReaderAt(_ context.Context, path string) (SizedReaderAt, error) {
 	normalized, valid := normalizePathForFile(path)
 	if !valid {
 		return nil, ErrInvalidPath
