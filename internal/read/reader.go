@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"path"
 	"strings"
@@ -213,7 +214,8 @@ func (r *Reader) GetManifest(ctx context.Context, dataset lode.DatasetID, seg Se
 	return r.loadManifest(ctx, manifestPath)
 }
 
-// loadManifest loads and parses a manifest from the given path.
+// loadManifest loads, parses, and validates a manifest from the given path.
+// Per CONTRACT_READ_API.md, manifests must be readable in a single small object fetch.
 func (r *Reader) loadManifest(ctx context.Context, manifestPath string) (*lode.Manifest, error) {
 	rc, err := r.store.Get(ctx, manifestPath)
 	if err != nil {
@@ -223,6 +225,11 @@ func (r *Reader) loadManifest(ctx context.Context, manifestPath string) (*lode.M
 
 	var manifest lode.Manifest
 	if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
+		return nil, fmt.Errorf("failed to decode manifest: %w", err)
+	}
+
+	// Validate manifest per CONTRACT_CORE.md requirements
+	if err := ValidateManifest(&manifest); err != nil {
 		return nil, err
 	}
 
