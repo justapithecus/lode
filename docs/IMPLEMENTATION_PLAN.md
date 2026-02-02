@@ -129,6 +129,9 @@ Make storage and format choices pluggable without changing semantics.
 - Gzip compression
 - Hive-style partitioner
 - NoOp components for partitioning/compression
+- **Unified Layout abstraction** (publicly single, internally composable)
+- **Default layout** (dataset-modeled, segment-anchored, flat)
+- Curated layout implementations (default + hive-style + manifest-driven)
 
 ### Mini-milestones
 - [ ] Manifests record component names
@@ -146,6 +149,8 @@ Provide a minimal read facade for external consumers.
 - Dataset / partition / segment listing
 - Manifest access
 - Object open and random access via adapter
+- Layout-aware discovery and path parsing
+- Layout-specific dataset errors (when datasets are not modeled)
 
 ### Mini-milestones
 - [ ] Range reads are true range reads
@@ -163,6 +168,7 @@ Stabilize behavior and validate invariants with tests and examples.
 - Error taxonomy and test coverage
 - Example: write → list → read
 - Explicit metadata visibility on disk
+- Examples for default layout and hive-style layout
 
 ### Mini-milestones
 - [ ] Tests enforce immutability
