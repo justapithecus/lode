@@ -29,10 +29,10 @@ that consumes data written by Lode.
 
 ### Dataset → Partition → Segment → Object
 
-- **Dataset**: logical collection (e.g. `nyc-rent/items`)
-- **Partition**: key-value path components (e.g. `day=2026-01-31/source=streeteasy`)
-- **Segment**: immutable append unit (often a run/attempt or time slice)
-- **Object**: immutable blob (data file, index, manifest, artifact)
+- **Dataset**: logical collection (e.g. `nyc-rent/items`) **when the layout models datasets**.
+- **Partition**: path-encoded organization, **as defined by the layout**.
+- **Segment**: immutable append unit (often a run/attempt or time slice).
+- **Object**: immutable blob (data file, index, manifest, artifact).
 
 ---
 
@@ -80,6 +80,12 @@ type ReadAPI interface {
     OpenObject(ctx context.Context, obj ObjectRef) (io.ReadCloser, error)
     ReaderAt(ctx context.Context, obj ObjectRef) (ReaderAt, error)
 }
+
+### Read API Error Semantics
+
+- `ListDatasets` MUST return a **layout-specific dataset error** when the layout
+  does not model datasets (not a generic "not supported" error).
+- `ListDatasets` MUST return an empty list only when storage is truly empty.
 ```
 
 This layer understands Lode’s layout and semantics but performs **no interpretation**.
@@ -136,8 +142,23 @@ Manifests must be readable in a single small object fetch.
 
 ## Layout
 
+Layout is the **authoritative abstraction** for read/write path topology and
+partition encoding. It governs:
+- How manifests are discovered (commit visibility).
+- How segment IDs are parsed from manifest paths.
+- Whether datasets are modeled and how dataset IDs are discovered.
+- How (and if) partitions are encoded in object paths.
+
+**Layout is unified**: partition encoding is part of topology. Path-based partitioning
+is not a separate concern from layout.
+
+Implementations MAY compose Layout internally from subcomponents (e.g., topology +
+partition encoding), but the **public surface MUST remain unified**. Internal
+composition MUST validate compatibility and reject illogical combinations.
+
 Directory topology is **not strictly enforced** by the library. Users may configure
-layout strategies via an abstraction layer. The following is a reference layout:
+layout strategies via an abstraction layer. The following is a **reference and
+novice-friendly** layout (not canonical):
 
 ```
 /datasets/<dataset>/
@@ -149,12 +170,80 @@ layout strategies via an abstraction layer. The following is a reference layout:
       /artifacts/
 ```
 
-Alternative layouts (e.g., partitions nested inside segments) are valid provided:
+Alternative layouts are valid provided:
 - Manifests remain discoverable via listing
 - Object paths recorded in manifests are accurate and resolvable
 - Commit semantics (manifest presence = visibility) are preserved
 
-Layout abstraction enables efficient prefix listing and pruning for specific backends.
+Layout abstraction enables efficient prefix listing and pruning for specific backends,
+but layouts may also choose manifest-driven discovery when no path topology exists.
+
+### Partition Semantics
+
+Partitioning schemes (hive-style keys, ranges, hash buckets, spatial tiling, etc.)
+are encoded by the layout. If partition information is **not** encoded in paths,
+it MUST be recorded explicitly in manifests so consumers can interpret it.
+
+### Reference Layouts (Curated)
+
+The library SHOULD provide a **small, curated set** of layout implementations that
+are known-good combinations, to reduce user friction and avoid illogical pairings.
+Examples include:
+- Default (novice-friendly) layout.
+- Hive-style (path-encoded key/value partitions).
+- Manifest-driven layout (minimal topology; discovery via manifests).
+
+Additional layouts (spatial tiling, temporal hierarchies, range partitioning) are
+valid future extensions, but MUST follow the same invariants.
+
+#### Default Layout (Novice-Friendly)
+
+The default layout MUST:
+- Model datasets as the top-level discriminator.
+- Be **segment-anchored**.
+- Use **flat (unpartitioned)** data paths by default.
+
+Reference shape:
+```
+/datasets/<dataset>/
+  /snapshots/<segment_id>/
+    manifest.json
+    /data/
+      file.<ext>
+```
+
+### Future Extensions (Exploratory Matrix)
+
+The following layout strategies and partition semantics are **non-normative**
+examples intended to guide future exploration. They are not required for the
+current implementation.
+
+**Layout Strategy (topology / placement rules)**
+- Segment-anchored: `.../<segment>/data/<partition...>/file`
+- Partition-anchored: `.../<partition...>/<segment>/file`
+- Manifest-only: only manifests have structure; data objects are opaque paths listed in manifest
+- Flat: no partition dirs; everything under a segment is flat
+- Keyed envelope: partitions encoded in filename, not path (e.g., `file__day=...__region=...`)
+
+**Partition Semantics**
+- Attribute K/V (Hive style: `day=`, `region=`)
+- Range (`ts_range=2026-01-01_2026-01-07`)
+- Hash/Bucket (`bucket=42`)
+- Spatial tile (`h3=...`, `quadkey=...`)
+- Temporal hierarchy (`2026/02/02` or `year=2026/month=02`)
+- Prefix (`prefix=ab`)
+- None (unpartitioned)
+
+**Discouraged Pairings (Non-normative)**
+
+Some combinations are intentionally discouraged because they degrade discovery
+semantics or pruning behavior. This is a primary reason the public interface
+exposes a **unified layout** rather than free mix-and-match components.
+
+Examples of discouraged pairings:
+- Partition-anchored + Hash/Bucket (high fan-out, poor locality for discovery).
+- Flat + Attribute K/V (hides partitions from listing; forces manifest-only discovery).
+- Keyed envelope + Spatial tile (opaque to prefix listing and typical spatial tooling).
 
 ---
 

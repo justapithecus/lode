@@ -15,16 +15,20 @@ partitioning, compression, and codec roles.
 
 ## Layout Ownership
 
+Layout is the **unified abstraction** that governs:
+- Path topology for datasets, segments, manifests, and objects.
+- Whether and how partition semantics are encoded into paths.
+
 - Logical key layout is defined by the persistence plane.
 - Storage adapters MUST NOT invent persistence structure.
 - Adapters MAY rewrite keys, but MUST return canonical keys that are persisted.
 
 ---
 
-## Partitioner
+## Partitioner (Logical Semantics)
 
-- Determines logical partition paths (e.g. hive-style `k=v`).
-- MUST be applied before storage adapter rewriting.
+- Defines logical partition semantics (keys, values, normalization).
+- Layout determines if/how partition semantics are encoded into paths.
 - MUST be recorded in manifests by name.
 
 ---
