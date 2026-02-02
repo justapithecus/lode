@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"testing"
 	"time"
@@ -277,7 +278,7 @@ func TestCrossAdapter_OpenObject(t *testing.T) {
 	objRef := ObjectRef{
 		Dataset: "dataset-alpha",
 		Segment: SegmentRef{ID: "snap-1"},
-		Path:    "data/region=us/file.json",
+		Path:    "datasets/dataset-alpha/snapshots/snap-1/data/region=us/file.json",
 	}
 
 	var contents [][]byte
@@ -443,6 +444,18 @@ func TestCrossAdapter_NotFound_Parity(t *testing.T) {
 			t.Errorf("[%s] expected empty datasets, got %d", tc.name, len(datasets))
 		}
 
+		// ListSegments on missing dataset should return ErrNotFound
+		_, err = reader.ListSegments(ctx, "missing", "", SegmentListOptions{})
+		if !errors.Is(err, lode.ErrNotFound) {
+			t.Errorf("[%s] ListSegments on missing dataset: expected ErrNotFound, got %v", tc.name, err)
+		}
+
+		// ListPartitions on missing dataset should return ErrNotFound
+		_, err = reader.ListPartitions(ctx, "missing", PartitionListOptions{})
+		if !errors.Is(err, lode.ErrNotFound) {
+			t.Errorf("[%s] ListPartitions on missing dataset: expected ErrNotFound, got %v", tc.name, err)
+		}
+
 		// GetManifest on missing should return ErrNotFound
 		_, err = reader.GetManifest(ctx, "missing", SegmentRef{ID: "snap-1"})
 		if err == nil {
@@ -453,7 +466,7 @@ func TestCrossAdapter_NotFound_Parity(t *testing.T) {
 		_, err = reader.OpenObject(ctx, ObjectRef{
 			Dataset: "missing",
 			Segment: SegmentRef{ID: "snap-1"},
-			Path:    "data/file.json",
+			Path:    "datasets/missing/snapshots/snap-1/data/file.json",
 		})
 		if err == nil {
 			t.Errorf("[%s] OpenObject on missing should error", tc.name)

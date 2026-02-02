@@ -102,18 +102,14 @@ func TestListDatasets_IgnoresDataWithoutManifest(t *testing.T) {
 	}
 }
 
-func TestListSegments_Empty(t *testing.T) {
+func TestListSegments_DatasetNotFound(t *testing.T) {
 	store := storage.NewMemory()
 	reader := NewReader(store)
 
-	segments, err := reader.ListSegments(context.Background(), "nonexistent", "", SegmentListOptions{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Empty list for nonexistent dataset (not error per contract)
-	if len(segments) != 0 {
-		t.Errorf("expected empty list, got %d segments", len(segments))
+	// Per CONTRACT_READ_API.md: return ErrNotFound if dataset doesn't exist
+	_, err := reader.ListSegments(context.Background(), "nonexistent", "", SegmentListOptions{})
+	if !errors.Is(err, lode.ErrNotFound) {
+		t.Errorf("expected ErrNotFound for nonexistent dataset, got %v", err)
 	}
 }
 
@@ -214,7 +210,7 @@ func TestOpenObject_NotFound(t *testing.T) {
 	_, err := reader.OpenObject(context.Background(), ObjectRef{
 		Dataset: "missing",
 		Segment: SegmentRef{ID: "snap-1"},
-		Path:    "data/file.json",
+		Path:    "datasets/missing/snapshots/snap-1/data/file.json",
 	})
 	if !errors.Is(err, lode.ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
@@ -227,7 +223,8 @@ func TestOpenObject_Success(t *testing.T) {
 
 	// Write a data file
 	content := []byte(`{"test": "data"}`)
-	err := store.Put(ctx, "datasets/mydata/snapshots/snap-1/data/file.json", bytes.NewReader(content))
+	fullPath := "datasets/mydata/snapshots/snap-1/data/file.json"
+	err := store.Put(ctx, fullPath, bytes.NewReader(content))
 	if err != nil {
 		t.Fatalf("failed to write test data: %v", err)
 	}
@@ -236,7 +233,7 @@ func TestOpenObject_Success(t *testing.T) {
 	rc, err := reader.OpenObject(ctx, ObjectRef{
 		Dataset: "mydata",
 		Segment: SegmentRef{ID: "snap-1"},
-		Path:    "data/file.json",
+		Path:    fullPath, // Full storage key
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -259,7 +256,8 @@ func TestObjectReaderAt_Success(t *testing.T) {
 
 	// Write a data file
 	content := []byte("0123456789abcdef")
-	err := store.Put(ctx, "datasets/mydata/snapshots/snap-1/data/file.bin", bytes.NewReader(content))
+	fullPath := "datasets/mydata/snapshots/snap-1/data/file.bin"
+	err := store.Put(ctx, fullPath, bytes.NewReader(content))
 	if err != nil {
 		t.Fatalf("failed to write test data: %v", err)
 	}
@@ -268,7 +266,7 @@ func TestObjectReaderAt_Success(t *testing.T) {
 	ra, err := reader.ObjectReaderAt(ctx, ObjectRef{
 		Dataset: "mydata",
 		Segment: SegmentRef{ID: "snap-1"},
-		Path:    "data/file.bin",
+		Path:    fullPath, // Full storage key
 	})
 	if err != nil {
 		t.Fatalf("ObjectReaderAt failed: %v", err)
@@ -296,7 +294,8 @@ func TestObjectReaderAt_RepeatedAccess(t *testing.T) {
 	store := storage.NewMemory()
 
 	content := []byte("hello world test data")
-	err := store.Put(ctx, "datasets/mydata/snapshots/snap-1/data/file.bin", bytes.NewReader(content))
+	fullPath := "datasets/mydata/snapshots/snap-1/data/file.bin"
+	err := store.Put(ctx, fullPath, bytes.NewReader(content))
 	if err != nil {
 		t.Fatalf("failed to write test data: %v", err)
 	}
@@ -305,7 +304,7 @@ func TestObjectReaderAt_RepeatedAccess(t *testing.T) {
 	ra, err := reader.ObjectReaderAt(ctx, ObjectRef{
 		Dataset: "mydata",
 		Segment: SegmentRef{ID: "snap-1"},
-		Path:    "data/file.bin",
+		Path:    fullPath, // Full storage key
 	})
 	if err != nil {
 		t.Fatalf("ObjectReaderAt failed: %v", err)
@@ -342,25 +341,21 @@ func TestObjectReaderAt_NotFound(t *testing.T) {
 	_, err := reader.ObjectReaderAt(context.Background(), ObjectRef{
 		Dataset: "mydata",
 		Segment: SegmentRef{ID: "snap-1"},
-		Path:    "data/missing.bin",
+		Path:    "datasets/mydata/snapshots/snap-1/data/missing.bin",
 	})
 	if !errors.Is(err, lode.ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
 
-func TestListPartitions_Empty(t *testing.T) {
+func TestListPartitions_DatasetNotFound(t *testing.T) {
 	store := storage.NewMemory()
 	reader := NewReader(store)
 
-	// No datasets exist
-	partitions, err := reader.ListPartitions(context.Background(), "nonexistent", PartitionListOptions{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(partitions) != 0 {
-		t.Errorf("expected empty list, got %d partitions", len(partitions))
+	// Per CONTRACT_READ_API.md: return ErrNotFound if dataset doesn't exist
+	_, err := reader.ListPartitions(context.Background(), "nonexistent", PartitionListOptions{})
+	if !errors.Is(err, lode.ErrNotFound) {
+		t.Errorf("expected ErrNotFound for nonexistent dataset, got %v", err)
 	}
 }
 
@@ -544,55 +539,44 @@ func TestListPartitions_OrderIndependent(t *testing.T) {
 // Empty dataset edge cases (Task 2 requirements)
 // -----------------------------------------------------------------------------
 
-func TestListSegments_EmptyDataset_ReturnsEmptyList(t *testing.T) {
+func TestListSegments_DatasetWithoutManifests_ReturnsNotFound(t *testing.T) {
 	ctx := context.Background()
 	store := storage.NewMemory()
 
 	// Create a dataset directory structure without any manifests
-	// This simulates a dataset that exists but has no committed segments
+	// This simulates a dataset that has files but no committed segments
 	err := store.Put(ctx, "datasets/empty-dataset/readme.txt", bytes.NewReader([]byte("placeholder")))
 	if err != nil {
 		t.Fatalf("failed to write placeholder: %v", err)
 	}
 
 	reader := NewReader(store)
-	segments, err := reader.ListSegments(ctx, "empty-dataset", "", SegmentListOptions{})
-	if err != nil {
-		t.Fatalf("expected no error for empty dataset, got %v", err)
-	}
-
-	if len(segments) != 0 {
-		t.Errorf("expected empty list, got %d segments", len(segments))
+	// Per CONTRACT_READ_API.md: dataset without manifests = doesn't exist
+	_, err = reader.ListSegments(ctx, "empty-dataset", "", SegmentListOptions{})
+	if !errors.Is(err, lode.ErrNotFound) {
+		t.Errorf("expected ErrNotFound for dataset without manifests, got %v", err)
 	}
 }
 
-func TestListPartitions_DatasetWithNoSegments_ReturnsEmptyList(t *testing.T) {
+func TestListPartitions_DatasetWithNoSegments_ReturnsNotFound(t *testing.T) {
 	store := storage.NewMemory()
 	reader := NewReader(store)
 
 	// Dataset doesn't exist at all
-	partitions, err := reader.ListPartitions(context.Background(), "nonexistent", PartitionListOptions{})
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	if len(partitions) != 0 {
-		t.Errorf("expected empty list, got %d partitions", len(partitions))
+	_, err := reader.ListPartitions(context.Background(), "nonexistent", PartitionListOptions{})
+	if !errors.Is(err, lode.ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
 
-func TestListSegments_WithPartitionFilter_EmptyDataset(t *testing.T) {
+func TestListSegments_WithPartitionFilter_DatasetNotFound(t *testing.T) {
 	store := storage.NewMemory()
 	reader := NewReader(store)
 
 	// Query with partition filter on nonexistent dataset
-	segments, err := reader.ListSegments(context.Background(), "nonexistent", "day=2024-01-01", SegmentListOptions{})
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	if len(segments) != 0 {
-		t.Errorf("expected empty list, got %d segments", len(segments))
+	_, err := reader.ListSegments(context.Background(), "nonexistent", "day=2024-01-01", SegmentListOptions{})
+	if !errors.Is(err, lode.ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
 

@@ -6,18 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path"
 	"strings"
 
 	"github.com/justapithecus/lode/lode"
-)
-
-// Layout constants matching internal/dataset layout.
-const (
-	datasetsDir     = "datasets"
-	snapshotsDir    = "snapshots"
-	manifestFile    = "manifest.json"
-	dataDir         = "data"
 )
 
 // ErrRangeReadNotSupported indicates that range reads are not supported.
@@ -31,25 +22,39 @@ var ErrRangeReadNotSupported = errors.New("range read not supported by this stor
 type Reader struct {
 	store   lode.Store
 	adapter *StoreAdapter
+	layout  Layout
 }
 
-// NewReader creates a Reader backed by the given store.
+// NewReader creates a Reader backed by the given store with the default layout.
 // If the store supports range reads (e.g., storage.FS or storage.Memory),
 // those capabilities will be automatically detected and enabled.
 func NewReader(store lode.Store) *Reader {
+	return NewReaderWithLayout(store, DefaultLayout{})
+}
+
+// NewReaderWithLayout creates a Reader with a custom layout strategy.
+// Per CONTRACT_READ_API.md, alternative layouts are valid provided:
+//   - Manifests remain discoverable via listing
+//   - Object paths in manifests are accurate and resolvable
+//   - Commit semantics (manifest presence = visibility) are preserved
+func NewReaderWithLayout(store lode.Store, layout Layout) *Reader {
 	if store == nil {
 		panic("read: store is required")
+	}
+	if layout == nil {
+		panic("read: layout is required")
 	}
 	return &Reader{
 		store:   store,
 		adapter: NewStoreAdapter(store),
+		layout:  layout,
 	}
 }
 
 // ListDatasets returns all dataset IDs found in storage.
 func (r *Reader) ListDatasets(ctx context.Context, opts DatasetListOptions) ([]lode.DatasetID, error) {
-	// List all paths under datasets/
-	paths, err := r.store.List(ctx, datasetsDir+"/")
+	// List all paths under the datasets prefix
+	paths, err := r.store.List(ctx, r.layout.DatasetsPrefix())
 	if err != nil {
 		return nil, err
 	}
@@ -60,18 +65,12 @@ func (r *Reader) ListDatasets(ctx context.Context, opts DatasetListOptions) ([]l
 	var datasets []lode.DatasetID
 
 	for _, p := range paths {
-		if path.Base(p) != manifestFile {
+		if !r.layout.IsManifest(p) {
 			continue
 		}
 
-		// Path format: datasets/<dataset_id>/snapshots/<snapshot_id>/manifest.json
-		parts := strings.Split(p, "/")
-		if len(parts) < 4 || parts[0] != datasetsDir {
-			continue
-		}
-
-		datasetID := lode.DatasetID(parts[1])
-		if seen[datasetID] {
+		datasetID := r.layout.ParseDatasetID(p)
+		if datasetID == "" || seen[datasetID] {
 			continue
 		}
 		seen[datasetID] = true
@@ -86,15 +85,17 @@ func (r *Reader) ListDatasets(ctx context.Context, opts DatasetListOptions) ([]l
 }
 
 // ListPartitions returns partition paths found across all committed segments.
+// Returns ErrNotFound if the dataset does not exist.
 func (r *Reader) ListPartitions(ctx context.Context, dataset lode.DatasetID, opts PartitionListOptions) ([]PartitionRef, error) {
-	// First verify dataset exists by listing segments
+	// ListSegments returns ErrNotFound if dataset doesn't exist
 	segments, err := r.ListSegments(ctx, dataset, "", SegmentListOptions{})
 	if err != nil {
 		return nil, err
 	}
 
+	// Dataset exists but has no segments is now impossible (ErrNotFound would be returned)
+	// But handle it defensively
 	if len(segments) == 0 {
-		// Dataset exists but has no committed segments
 		return nil, nil
 	}
 
@@ -105,12 +106,13 @@ func (r *Reader) ListPartitions(ctx context.Context, dataset lode.DatasetID, opt
 	for _, seg := range segments {
 		manifest, err := r.GetManifest(ctx, dataset, seg)
 		if err != nil {
-			// Skip segments with unreadable manifests
-			continue
+			// Per CONTRACT_READ_API.md: manifests are authoritative.
+			// If a manifest exists but cannot be read, return an error.
+			return nil, fmt.Errorf("failed to load manifest for segment %s: %w", seg.ID, err)
 		}
 
 		for _, f := range manifest.Files {
-			partPath := extractPartitionPath(f.Path)
+			partPath := r.layout.ExtractPartitionPath(f.Path)
 			if partPath == "" || seen[partPath] {
 				continue
 			}
@@ -126,39 +128,11 @@ func (r *Reader) ListPartitions(ctx context.Context, dataset lode.DatasetID, opt
 	return partitions, nil
 }
 
-// extractPartitionPath extracts the partition path component from a file path.
-// File paths have format: datasets/<id>/snapshots/<id>/data/[partition/]filename
-// Returns empty string if no partition.
-func extractPartitionPath(filePath string) string {
-	parts := strings.Split(filePath, "/")
-
-	// Find the "data" component
-	dataIdx := -1
-	for i, p := range parts {
-		if p == dataDir {
-			dataIdx = i
-			break
-		}
-	}
-
-	if dataIdx < 0 || dataIdx >= len(parts)-1 {
-		return ""
-	}
-
-	// Everything between "data" and the filename is the partition path
-	partParts := parts[dataIdx+1 : len(parts)-1]
-	if len(partParts) == 0 {
-		return ""
-	}
-
-	return strings.Join(partParts, "/")
-}
-
 // ListSegments returns committed segments (snapshots) within a dataset.
+// Returns ErrNotFound if the dataset does not exist (has no committed segments).
 func (r *Reader) ListSegments(ctx context.Context, dataset lode.DatasetID, partition PartitionPath, opts SegmentListOptions) ([]SegmentRef, error) {
-	// List all paths under the dataset's snapshots directory
-	prefix := path.Join(datasetsDir, string(dataset), snapshotsDir) + "/"
-	paths, err := r.store.List(ctx, prefix)
+	// List all paths under the dataset's segments directory
+	paths, err := r.store.List(ctx, r.layout.SegmentsPrefix(dataset))
 	if err != nil {
 		return nil, err
 	}
@@ -167,17 +141,16 @@ func (r *Reader) ListSegments(ctx context.Context, dataset lode.DatasetID, parti
 	// Per CONTRACT_READ_API.md: manifest presence = commit signal
 	var segments []SegmentRef
 	seen := make(map[lode.SnapshotID]bool)
+	hasAnyManifest := false
 
 	for _, p := range paths {
-		if path.Base(p) != manifestFile {
+		if !r.layout.IsManifest(p) {
 			continue
 		}
+		hasAnyManifest = true
 
-		// Path format: datasets/<dataset_id>/snapshots/<snapshot_id>/manifest.json
-		dir := path.Dir(p)
-		segmentID := lode.SnapshotID(path.Base(dir))
-
-		if seen[segmentID] {
+		segmentID := r.layout.ParseSegmentID(p)
+		if segmentID == "" || seen[segmentID] {
 			continue
 		}
 
@@ -185,9 +158,11 @@ func (r *Reader) ListSegments(ctx context.Context, dataset lode.DatasetID, parti
 		if partition != "" {
 			manifest, err := r.loadManifest(ctx, p)
 			if err != nil {
-				continue
+				// Per CONTRACT_READ_API.md: manifests are authoritative.
+				// If a manifest exists but cannot be read, return an error.
+				return nil, fmt.Errorf("failed to load manifest %s: %w", p, err)
 			}
-			if !segmentContainsPartition(manifest, string(partition)) {
+			if !r.segmentContainsPartition(manifest, string(partition)) {
 				continue
 			}
 		}
@@ -200,13 +175,19 @@ func (r *Reader) ListSegments(ctx context.Context, dataset lode.DatasetID, parti
 		}
 	}
 
+	// Per CONTRACT_READ_API.md: return ErrNotFound if dataset doesn't exist
+	// A dataset exists if it has at least one committed segment (manifest)
+	if !hasAnyManifest {
+		return nil, lode.ErrNotFound
+	}
+
 	return segments, nil
 }
 
 // segmentContainsPartition checks if a manifest contains files in the given partition.
-func segmentContainsPartition(m *lode.Manifest, partition string) bool {
+func (r *Reader) segmentContainsPartition(m *lode.Manifest, partition string) bool {
 	for _, f := range m.Files {
-		partPath := extractPartitionPath(f.Path)
+		partPath := r.layout.ExtractPartitionPath(f.Path)
 		if partPath == partition || strings.HasPrefix(partPath, partition+"/") {
 			return true
 		}
@@ -216,7 +197,7 @@ func segmentContainsPartition(m *lode.Manifest, partition string) bool {
 
 // GetManifest loads the manifest for a specific segment.
 func (r *Reader) GetManifest(ctx context.Context, dataset lode.DatasetID, seg SegmentRef) (*lode.Manifest, error) {
-	manifestPath := path.Join(datasetsDir, string(dataset), snapshotsDir, string(seg.ID), manifestFile)
+	manifestPath := r.layout.ManifestPath(dataset, seg.ID)
 	return r.loadManifest(ctx, manifestPath)
 }
 
@@ -243,18 +224,17 @@ func (r *Reader) loadManifest(ctx context.Context, manifestPath string) (*lode.M
 }
 
 // OpenObject returns a reader for a data object.
+// obj.Path must be the full storage key (as stored in manifest FileRef.Path).
 func (r *Reader) OpenObject(ctx context.Context, obj ObjectRef) (io.ReadCloser, error) {
-	// Construct the full path from ObjectRef
-	objPath := path.Join(datasetsDir, string(obj.Dataset), snapshotsDir, string(obj.Segment.ID), obj.Path)
-	return r.store.Get(ctx, objPath)
+	return r.store.Get(ctx, obj.Path)
 }
 
 // ObjectReaderAt returns a random-access reader for a data object.
+// obj.Path must be the full storage key (as stored in manifest FileRef.Path).
 // Returns ErrRangeReadNotSupported if the underlying store does not support range reads.
 // Per CONTRACT_READ_API.md, range reads must be true range reads, not simulated.
 func (r *Reader) ObjectReaderAt(ctx context.Context, obj ObjectRef) (ReaderAt, error) {
-	objPath := path.Join(datasetsDir, string(obj.Dataset), snapshotsDir, string(obj.Segment.ID), obj.Path)
-	return r.adapter.ReaderAt(ctx, ObjectKey(objPath))
+	return r.adapter.ReaderAt(ctx, ObjectKey(obj.Path))
 }
 
 // Ensure Reader implements API

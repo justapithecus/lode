@@ -26,7 +26,9 @@ type ObjectRef struct {
 	// Segment is the segment containing this object.
 	Segment SegmentRef
 
-	// Path is the object path relative to the segment.
+	// Path is the full storage key for the object.
+	// This matches the FileRef.Path stored in manifests.
+	// Example: "datasets/mydata/snapshots/snap-1/data/file.json"
 	Path string
 }
 
