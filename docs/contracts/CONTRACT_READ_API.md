@@ -202,6 +202,10 @@ The default layout MUST:
 - Model datasets as the top-level discriminator.
 - Be **segment-anchored**.
 - Use **flat (unpartitioned)** data paths by default.
+- Recognize manifests **only** at:
+  `datasets/<dataset>/snapshots/<segment>/manifest.json`
+- Treat datasets as existing **only** when at least one valid manifest path
+  matches the strict default layout pattern.
 
 Reference shape:
 ```

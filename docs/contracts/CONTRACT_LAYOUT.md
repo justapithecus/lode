@@ -23,6 +23,14 @@ Layout is the **unified abstraction** that governs:
 - Storage adapters MUST NOT invent persistence structure.
 - Adapters MAY rewrite keys, but MUST return canonical keys that are persisted.
 
+### Layout-Specific Requirements
+
+- **Flat layouts** (no path-encoded partitions) MUST be paired with `partitioner = "noop"`.
+  Any non-noop partitioner MUST be rejected at configuration time to prevent path collisions.
+- **Hive-style layouts** MUST be partition-anchored and enable prefix pruning when a
+  partition filter is supplied. Layouts that claim partition-first semantics but require
+  full-manifest scans are invalid.
+
 ---
 
 ## Partitioner (Logical Semantics)
