@@ -2,6 +2,7 @@ package lode
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -153,7 +154,7 @@ func TestDataset_Latest_EmptyDataset_ReturnsErrNoSnapshots(t *testing.T) {
 	}
 
 	_, err = ds.Latest(context.Background())
-	if err != ErrNoSnapshots {
+	if !errors.Is(err, ErrNoSnapshots) {
 		t.Errorf("expected ErrNoSnapshots, got: %v", err)
 	}
 }
@@ -180,7 +181,7 @@ func TestDataset_Snapshot_EmptyDataset_ReturnsErrNotFound(t *testing.T) {
 	}
 
 	_, err = ds.Snapshot(context.Background(), "nonexistent-id")
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got: %v", err)
 	}
 }
