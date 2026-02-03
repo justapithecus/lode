@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"testing"
 	"time"
 )
@@ -220,6 +221,48 @@ func TestReader_ListDatasets_WithValidManifest(t *testing.T) {
 	}
 	if len(datasets) != 1 || datasets[0] != "test-ds" {
 		t.Errorf("expected [test-ds], got: %v", datasets)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// G4: Layout-specific tests
+// -----------------------------------------------------------------------------
+
+func TestReader_ListDatasets_FlatLayout_ReturnsErrDatasetsNotModeled(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemory()
+
+	reader, err := NewReader(NewMemoryFactoryFrom(store), WithLayout(NewFlatLayout()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = reader.ListDatasets(ctx, DatasetListOptions{})
+	if !errors.Is(err, ErrDatasetsNotModeled) {
+		t.Errorf("expected ErrDatasetsNotModeled, got: %v", err)
+	}
+}
+
+func TestReader_ListDatasets_FSStore_EmptyStorage_ReturnsEmptyList(t *testing.T) {
+	ctx := context.Background()
+
+	tmpDir, err := os.MkdirTemp("", "lode-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	reader, err := NewReader(NewFSFactory(tmpDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	datasets, err := reader.ListDatasets(ctx, DatasetListOptions{})
+	if err != nil {
+		t.Fatalf("expected no error for empty FS storage, got: %v", err)
+	}
+	if len(datasets) != 0 {
+		t.Errorf("expected empty list, got: %v", datasets)
 	}
 }
 

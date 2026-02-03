@@ -53,10 +53,15 @@ func run() error {
 	// NewHiveLayout("day") configures BOTH:
 	//   - Hive (partition-first) path topology
 	//   - Hive partitioner that extracts "day" field from records
+	hiveLayout, err := lode.NewHiveLayout("day")
+	if err != nil {
+		return fmt.Errorf("failed to create hive layout: %w", err)
+	}
+
 	ds, err := lode.NewDataset(
 		"events",
 		storeFactory,
-		lode.WithLayout(lode.NewHiveLayout("day")),
+		lode.WithLayout(hiveLayout),
 		lode.WithCodec(lode.NewJSONLCodec()),
 	)
 	if err != nil {
@@ -109,10 +114,10 @@ func run() error {
 	// -------------------------------------------------------------------------
 	fmt.Println("=== LIST ===")
 
-	// Create reader with HiveLayout
+	// Create reader with HiveLayout (reuse layout from dataset)
 	reader, err := lode.NewReader(
 		storeFactory,
-		lode.WithLayout(lode.NewHiveLayout("day")),
+		lode.WithLayout(hiveLayout),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create reader: %w", err)

@@ -464,3 +464,67 @@ func TestMemoryStore_ReaderAt_NotFound(t *testing.T) {
 		t.Errorf("expected ErrNotFound, got: %v", err)
 	}
 }
+
+// -----------------------------------------------------------------------------
+// List empty prefix tests (empty dataset/storage semantics)
+// -----------------------------------------------------------------------------
+
+func TestFSStore_List_NonExistentPrefix_ReturnsEmpty(t *testing.T) {
+	ctx := context.Background()
+	tmpDir, err := os.MkdirTemp("", "lode-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testutil.RemoveAll(tmpDir)
+
+	store, err := NewFS(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// List a prefix that doesn't exist - should return empty list, not error
+	paths, err := store.List(ctx, "nonexistent/prefix")
+	if err != nil {
+		t.Fatalf("expected no error for non-existent prefix, got: %v", err)
+	}
+	if len(paths) != 0 {
+		t.Errorf("expected empty list, got: %v", paths)
+	}
+}
+
+func TestFSStore_List_EmptyPrefix_ReturnsEmpty(t *testing.T) {
+	ctx := context.Background()
+	tmpDir, err := os.MkdirTemp("", "lode-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testutil.RemoveAll(tmpDir)
+
+	store, err := NewFS(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// List empty prefix on empty storage - should return empty list
+	paths, err := store.List(ctx, "")
+	if err != nil {
+		t.Fatalf("expected no error for empty prefix, got: %v", err)
+	}
+	if len(paths) != 0 {
+		t.Errorf("expected empty list, got: %v", paths)
+	}
+}
+
+func TestMemoryStore_List_NonExistentPrefix_ReturnsEmpty(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemory()
+
+	// List a prefix that doesn't exist - should return empty list, not error
+	paths, err := store.List(ctx, "nonexistent/prefix")
+	if err != nil {
+		t.Fatalf("expected no error for non-existent prefix, got: %v", err)
+	}
+	if len(paths) != 0 {
+		t.Errorf("expected empty list, got: %v", paths)
+	}
+}

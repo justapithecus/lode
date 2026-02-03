@@ -19,9 +19,12 @@ func TestNewDataset_RawBlobWithPartitioner_ReturnsError(t *testing.T) {
 	// NewHiveLayout creates a layout with a non-noop partitioner (hive partitioning).
 	// Using it without a codec should return an error.
 
-	hiveLayout := NewHiveLayout("day") // Non-noop partitioner
+	hiveLayout, err := NewHiveLayout("day") // Non-noop partitioner
+	if err != nil {
+		t.Fatalf("NewHiveLayout failed: %v", err)
+	}
 
-	_, err := NewDataset("test-ds", NewMemoryFactory(), WithLayout(hiveLayout))
+	_, err = NewDataset("test-ds", NewMemoryFactory(), WithLayout(hiveLayout))
 	if err == nil {
 		t.Fatal("expected error for raw blob mode with partitioner, got nil")
 	}
@@ -38,6 +41,27 @@ func TestNewDataset_RawBlobWithDefaultLayout_Success(t *testing.T) {
 	}
 	if ds == nil {
 		t.Fatal("expected non-nil dataset")
+	}
+}
+
+func TestNewHiveLayout_ZeroKeys_ReturnsError(t *testing.T) {
+	// NewHiveLayout requires at least one partition key
+	_, err := NewHiveLayout()
+	if err == nil {
+		t.Fatal("expected error for zero keys, got nil")
+	}
+	if !strings.Contains(err.Error(), "at least one partition key") {
+		t.Errorf("expected 'at least one partition key' in error, got: %v", err)
+	}
+}
+
+func TestNewHiveLayout_WithKeys_Success(t *testing.T) {
+	layout, err := NewHiveLayout("day")
+	if err != nil {
+		t.Fatalf("NewHiveLayout failed: %v", err)
+	}
+	if layout == nil {
+		t.Fatal("expected non-nil layout")
 	}
 }
 
@@ -82,6 +106,49 @@ func TestReader_WithCodec_ReturnsError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not valid for reader") {
 		t.Errorf("expected 'not valid for reader' error, got: %v", err)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Empty dataset behavior tests
+// -----------------------------------------------------------------------------
+
+func TestDataset_Latest_EmptyDataset_ReturnsErrNoSnapshots(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = ds.Latest(context.Background())
+	if err != ErrNoSnapshots {
+		t.Errorf("expected ErrNoSnapshots, got: %v", err)
+	}
+}
+
+func TestDataset_Snapshots_EmptyDataset_ReturnsEmptyList(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	snapshots, err := ds.Snapshots(context.Background())
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if len(snapshots) != 0 {
+		t.Errorf("expected empty list, got %d snapshots", len(snapshots))
+	}
+}
+
+func TestDataset_Snapshot_EmptyDataset_ReturnsErrNotFound(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = ds.Snapshot(context.Background(), "nonexistent-id")
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound, got: %v", err)
 	}
 }
 

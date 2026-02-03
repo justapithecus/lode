@@ -54,9 +54,10 @@ reader, _ := lode.NewReader(
     lode.NewFSFactory("/data"),
 )
 // Or with custom layout:
+hiveLayout, _ := lode.NewHiveLayout("day")
 reader, _ := lode.NewReader(
     lode.NewFSFactory("/data"),
-    lode.WithLayout(lode.NewHiveLayout("day")),
+    lode.WithLayout(hiveLayout),
 )
 ```
 
@@ -90,7 +91,7 @@ includes a curated set of components:
 
 **Layouts:**
 - `NewDefaultLayout()` - Default novice-friendly layout
-- `NewHiveLayout(keys...)` - Partition-first layout for pruning
+- `NewHiveLayout(keys...) (layout, error)` - Partition-first layout for pruning
 - `NewFlatLayout()` - Minimal flat layout
 
 **Compressors:**
@@ -159,6 +160,18 @@ timestamps are not applicable for that snapshot.
 
 Writes always take explicit caller-supplied metadata. Empty metadata is
 valid; nil metadata is not.
+
+---
+
+## Usage Gotchas (Important)
+
+- `metadata` must be non-nil on every write (use `{}` for empty metadata).
+- Raw blob mode (no codec) requires exactly one `[]byte` element in `Write`.
+- Raw blob mode cannot use partitioning (no record fields to extract keys).
+- `NewHiveLayout` returns `(layout, error)` — at least one partition key is required.
+- `ListDatasets` returns `ErrNoManifests` when storage has objects but no manifests.
+- Layouts that do not model datasets (e.g., flat) return `ErrDatasetsNotModeled`.
+- `ReaderAt` may return an `io.ReaderAt` that also implements `io.Closer`; close it when done.
 
 ---
 
