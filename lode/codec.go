@@ -22,6 +22,9 @@ type jsonlCodec struct{}
 //
 // Each record is serialized as a single line of JSON.
 // Records can be any JSON-serializable value.
+//
+// JSONL codec implements StreamingRecordCodec and can be used with
+// StreamWriteRecords for streaming record writes.
 func NewJSONLCodec() Codec {
 	return &jsonlCodec{}
 }
@@ -59,4 +62,23 @@ func (j *jsonlCodec) Decode(r io.Reader) ([]any, error) {
 		return nil, err
 	}
 	return records, nil
+}
+
+// NewStreamEncoder implements StreamingRecordCodec for JSONL.
+func (j *jsonlCodec) NewStreamEncoder(w io.Writer) (RecordStreamEncoder, error) {
+	return &jsonlStreamEncoder{enc: jsonCodec.NewEncoder(w)}, nil
+}
+
+// jsonlStreamEncoder implements RecordStreamEncoder for JSONL format.
+type jsonlStreamEncoder struct {
+	enc *jsoniter.Encoder
+}
+
+func (e *jsonlStreamEncoder) WriteRecord(record any) error {
+	return e.enc.Encode(record)
+}
+
+func (e *jsonlStreamEncoder) Close() error {
+	// JSONL has no footer/finalization needed
+	return nil
 }

@@ -135,10 +135,33 @@ These indicate a mismatch between stored data and current configuration.
 |-------|--------|---------|
 | Error | Dataset.Read | Snapshot codec doesn't match dataset codec |
 | Error | Dataset.Read | Snapshot compressor doesn't match dataset compressor |
+| `lode.ErrCodecNotStreamable` | Dataset.StreamWriteRecords | Configured codec does not support streaming |
 
 **Behavior**:
 - `Read` validates manifest components against dataset config before reading.
 - Mismatch returns descriptive error (not silent corruption).
+- `StreamWriteRecords` returns `ErrCodecNotStreamable` if codec doesn't implement `StreamingRecordCodec`.
+
+---
+
+### 7. Streaming API Errors
+
+These indicate invalid use of streaming write APIs.
+
+| Error | Source | Meaning |
+|-------|--------|---------|
+| `lode.ErrCodecConfigured` | Dataset.StreamWrite | StreamWrite called with a codec configured |
+
+**Behavior**:
+- `StreamWrite` is for raw binary payloads only; it returns `ErrCodecConfigured` if a codec is set.
+- Use `StreamWriteRecords` for structured data with streaming codecs.
+- Use `Write` for structured data with non-streaming codecs.
+
+**Cleanup on Error**:
+- On abort or error before commit, no manifest is written.
+- Partial data objects may remain in storage; cleanup is best-effort.
+- Callers should not rely on automatic cleanup of partial objects.
+- Failure to delete a partial object does not create a snapshot.
 
 ---
 

@@ -142,6 +142,17 @@ func TestReader_WithCodec_ReturnsError(t *testing.T) {
 	}
 }
 
+func TestReader_WithChecksum_ReturnsError(t *testing.T) {
+	// WithChecksum is a dataset-only option
+	_, err := NewReader(NewMemoryFactory(), WithChecksum(NewMD5Checksum()))
+	if err == nil {
+		t.Fatal("expected error for WithChecksum on reader, got nil")
+	}
+	if !strings.Contains(err.Error(), "not valid for reader") {
+		t.Errorf("expected 'not valid for reader' error, got: %v", err)
+	}
+}
+
 // -----------------------------------------------------------------------------
 // Empty dataset behavior tests
 // -----------------------------------------------------------------------------
@@ -233,6 +244,852 @@ func TestDataset_RawBlobWrite_WrongType_ReturnsError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "requires []byte") {
 		t.Errorf("expected '[]byte' error, got: %v", err)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// StreamWrite tests
+// -----------------------------------------------------------------------------
+
+func TestDataset_StreamWrite_Success(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sw, err := ds.StreamWrite(t.Context(), Metadata{"source": "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write some data
+	data := []byte("hello stream world")
+	n, err := sw.Write(data)
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+	if n != len(data) {
+		t.Errorf("expected %d bytes written, got %d", len(data), n)
+	}
+
+	// Commit and verify snapshot
+	snap, err := sw.Commit(t.Context())
+	if err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	if snap == nil {
+		t.Fatal("expected snapshot, got nil")
+	}
+	if snap.Manifest.RowCount != 1 {
+		t.Errorf("expected RowCount 1, got %d", snap.Manifest.RowCount)
+	}
+	if len(snap.Manifest.Files) != 1 {
+		t.Errorf("expected 1 file, got %d", len(snap.Manifest.Files))
+	}
+	if snap.Manifest.Metadata["source"] != "test" {
+		t.Errorf("expected metadata source=test, got %v", snap.Manifest.Metadata)
+	}
+
+	// Verify snapshot is visible via Latest
+	latest, err := ds.Latest(t.Context())
+	if err != nil {
+		t.Fatalf("Latest failed: %v", err)
+	}
+	if latest.ID != snap.ID {
+		t.Errorf("expected latest ID %s, got %s", snap.ID, latest.ID)
+	}
+
+	// Verify data can be read back
+	readData, err := ds.Read(t.Context(), snap.ID)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if len(readData) != 1 {
+		t.Fatalf("expected 1 element, got %d", len(readData))
+	}
+	readBytes, ok := readData[0].([]byte)
+	if !ok {
+		t.Fatalf("expected []byte, got %T", readData[0])
+	}
+	if string(readBytes) != string(data) {
+		t.Errorf("expected %q, got %q", data, readBytes)
+	}
+}
+
+func TestDataset_StreamWrite_Abort_NoManifest(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sw, err := ds.StreamWrite(t.Context(), Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write some data
+	_, err = sw.Write([]byte("partial data"))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	// Abort
+	err = sw.Abort(t.Context())
+	if err != nil {
+		t.Fatalf("Abort failed: %v", err)
+	}
+
+	// Verify no snapshot visible
+	_, err = ds.Latest(t.Context())
+	if !errors.Is(err, ErrNoSnapshots) {
+		t.Errorf("expected ErrNoSnapshots after abort, got: %v", err)
+	}
+
+	snapshots, err := ds.Snapshots(t.Context())
+	if err != nil {
+		t.Fatalf("Snapshots failed: %v", err)
+	}
+	if len(snapshots) != 0 {
+		t.Errorf("expected 0 snapshots after abort, got %d", len(snapshots))
+	}
+}
+
+func TestDataset_StreamWrite_CloseWithoutCommit_BehavesAsAbort(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sw, err := ds.StreamWrite(t.Context(), Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write some data
+	_, err = sw.Write([]byte("will be abandoned"))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	// Close without commit
+	err = sw.Close()
+	if err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// Verify no snapshot visible
+	_, err = ds.Latest(t.Context())
+	if !errors.Is(err, ErrNoSnapshots) {
+		t.Errorf("expected ErrNoSnapshots after close without commit, got: %v", err)
+	}
+}
+
+func TestDataset_StreamWrite_NilMetadata_ReturnsError(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = ds.StreamWrite(t.Context(), nil)
+	if err == nil {
+		t.Fatal("expected error for nil metadata, got nil")
+	}
+	if !strings.Contains(err.Error(), "metadata must be non-nil") {
+		t.Errorf("expected metadata error, got: %v", err)
+	}
+}
+
+func TestDataset_StreamWrite_WithCodec_ReturnsError(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory(), WithCodec(NewJSONLCodec()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = ds.StreamWrite(t.Context(), Metadata{})
+	if !errors.Is(err, ErrCodecConfigured) {
+		t.Errorf("expected ErrCodecConfigured, got: %v", err)
+	}
+}
+
+func TestDataset_StreamWrite_WriteAfterCommit_ReturnsError(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sw, err := ds.StreamWrite(t.Context(), Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = sw.Write([]byte("data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = sw.Commit(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write after commit should fail
+	_, err = sw.Write([]byte("more data"))
+	if err == nil {
+		t.Fatal("expected error writing after commit")
+	}
+}
+
+func TestDataset_StreamWrite_WriteAfterAbort_ReturnsError(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sw, err := ds.StreamWrite(t.Context(), Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = sw.Write([]byte("data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = sw.Abort(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write after abort should fail
+	_, err = sw.Write([]byte("more data"))
+	if err == nil {
+		t.Fatal("expected error writing after abort")
+	}
+}
+
+func TestDataset_StreamWrite_DoubleCommit_ReturnsError(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sw, err := ds.StreamWrite(t.Context(), Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = sw.Write([]byte("data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = sw.Commit(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Second commit should fail
+	_, err = sw.Commit(t.Context())
+	if err == nil {
+		t.Fatal("expected error on double commit")
+	}
+}
+
+func TestDataset_StreamWrite_AbortAfterCommit_ReturnsError(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sw, err := ds.StreamWrite(t.Context(), Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = sw.Write([]byte("data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = sw.Commit(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Abort after commit should fail
+	err = sw.Abort(t.Context())
+	if err == nil {
+		t.Fatal("expected error aborting after commit")
+	}
+}
+
+func TestDataset_StreamWrite_ParentSnapshotLinked(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// First write (regular Write)
+	firstSnap, err := ds.Write(t.Context(), []any{[]byte("first")}, Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Second write (StreamWrite)
+	sw, err := ds.StreamWrite(t.Context(), Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = sw.Write([]byte("second"))
+	secondSnap, err := sw.Commit(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if secondSnap.Manifest.ParentSnapshotID != firstSnap.ID {
+		t.Errorf("expected parent %s, got %s", firstSnap.ID, secondSnap.Manifest.ParentSnapshotID)
+	}
+}
+
+func TestDataset_StreamWrite_WithGzipCompression(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory(), WithCompressor(NewGzipCompressor()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sw, err := ds.StreamWrite(t.Context(), Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data := []byte("compressible data that should be gzipped")
+	_, err = sw.Write(data)
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	snap, err := sw.Commit(t.Context())
+	if err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	// Verify manifest indicates gzip compression
+	if snap.Manifest.Compressor != "gzip" {
+		t.Errorf("expected compressor 'gzip', got %q", snap.Manifest.Compressor)
+	}
+
+	// Verify file path ends with .gz
+	if len(snap.Manifest.Files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(snap.Manifest.Files))
+	}
+	if !strings.HasSuffix(snap.Manifest.Files[0].Path, ".gz") {
+		t.Errorf("expected .gz extension, got %s", snap.Manifest.Files[0].Path)
+	}
+
+	// Verify data can be read back correctly
+	readData, err := ds.Read(t.Context(), snap.ID)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	readBytes, ok := readData[0].([]byte)
+	if !ok {
+		t.Fatalf("expected []byte, got %T", readData[0])
+	}
+	if string(readBytes) != string(data) {
+		t.Errorf("expected %q, got %q", data, readBytes)
+	}
+}
+
+func TestDataset_StreamWrite_MultipleWrites(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sw, err := ds.StreamWrite(t.Context(), Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write in chunks
+	chunks := [][]byte{
+		[]byte("chunk1"),
+		[]byte("-chunk2"),
+		[]byte("-chunk3"),
+	}
+	for _, chunk := range chunks {
+		_, err = sw.Write(chunk)
+		if err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	snap, err := sw.Commit(t.Context())
+	if err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	// Verify data can be read back as concatenated
+	readData, err := ds.Read(t.Context(), snap.ID)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	readBytes, ok := readData[0].([]byte)
+	if !ok {
+		t.Fatalf("expected []byte, got %T", readData[0])
+	}
+	expected := "chunk1-chunk2-chunk3"
+	if string(readBytes) != expected {
+		t.Errorf("expected %q, got %q", expected, readBytes)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// StreamWriteRecords tests
+// -----------------------------------------------------------------------------
+
+func TestDataset_StreamWriteRecords_Success(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory(), WithCodec(NewJSONLCodec()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	records := []any{
+		D{"id": "1", "value": "first"},
+		D{"id": "2", "value": "second"},
+		D{"id": "3", "value": "third"},
+	}
+	iter := &sliceIterator{records: records}
+
+	snap, err := ds.StreamWriteRecords(t.Context(), Metadata{"source": "stream"}, iter)
+	if err != nil {
+		t.Fatalf("StreamWriteRecords failed: %v", err)
+	}
+
+	if snap == nil {
+		t.Fatal("expected snapshot, got nil")
+	}
+	if snap.Manifest.RowCount != 3 {
+		t.Errorf("expected RowCount 3, got %d", snap.Manifest.RowCount)
+	}
+	if snap.Manifest.Codec != "jsonl" {
+		t.Errorf("expected codec 'jsonl', got %q", snap.Manifest.Codec)
+	}
+	if snap.Manifest.Metadata["source"] != "stream" {
+		t.Errorf("expected metadata source=stream, got %v", snap.Manifest.Metadata)
+	}
+
+	// Verify snapshot is visible via Latest
+	latest, err := ds.Latest(t.Context())
+	if err != nil {
+		t.Fatalf("Latest failed: %v", err)
+	}
+	if latest.ID != snap.ID {
+		t.Errorf("expected latest ID %s, got %s", snap.ID, latest.ID)
+	}
+
+	// Verify data can be read back
+	readData, err := ds.Read(t.Context(), snap.ID)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if len(readData) != 3 {
+		t.Fatalf("expected 3 records, got %d", len(readData))
+	}
+}
+
+func TestDataset_StreamWriteRecords_NonStreamingCodec_ReturnsError(t *testing.T) {
+	// testCodec does not implement StreamingRecordCodec
+	ds, err := NewDataset("test-ds", NewMemoryFactory(), WithCodec(&testCodec{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	iter := &sliceIterator{records: []any{D{"id": "1"}}}
+	_, err = ds.StreamWriteRecords(t.Context(), Metadata{}, iter)
+	if !errors.Is(err, ErrCodecNotStreamable) {
+		t.Errorf("expected ErrCodecNotStreamable, got: %v", err)
+	}
+}
+
+func TestDataset_StreamWriteRecords_NoCodec_ReturnsError(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	iter := &sliceIterator{records: []any{D{"id": "1"}}}
+	_, err = ds.StreamWriteRecords(t.Context(), Metadata{}, iter)
+	if err == nil {
+		t.Fatal("expected error for no codec, got nil")
+	}
+	if !strings.Contains(err.Error(), "requires a codec") {
+		t.Errorf("expected 'requires a codec' error, got: %v", err)
+	}
+}
+
+func TestDataset_StreamWriteRecords_NilMetadata_ReturnsError(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory(), WithCodec(NewJSONLCodec()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	iter := &sliceIterator{records: []any{D{"id": "1"}}}
+	_, err = ds.StreamWriteRecords(t.Context(), nil, iter)
+	if err == nil {
+		t.Fatal("expected error for nil metadata, got nil")
+	}
+	if !strings.Contains(err.Error(), "metadata must be non-nil") {
+		t.Errorf("expected metadata error, got: %v", err)
+	}
+}
+
+func TestDataset_StreamWriteRecords_TimestampedRecords_ComputesMinMax(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory(), WithCodec(NewJSONLCodec()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ts1 := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
+	ts2 := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+	ts3 := time.Date(2024, 1, 10, 8, 0, 0, 0, time.UTC)
+
+	records := []any{
+		&timestampedRecord{ID: "a", Time: ts1},
+		&timestampedRecord{ID: "b", Time: ts2},
+		&timestampedRecord{ID: "c", Time: ts3},
+	}
+	iter := &sliceIterator{records: records}
+
+	snap, err := ds.StreamWriteRecords(t.Context(), Metadata{}, iter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if snap.Manifest.MinTimestamp == nil {
+		t.Fatal("expected MinTimestamp to be set")
+	}
+	if snap.Manifest.MaxTimestamp == nil {
+		t.Fatal("expected MaxTimestamp to be set")
+	}
+	if !snap.Manifest.MinTimestamp.Equal(ts1) {
+		t.Errorf("expected MinTimestamp %v, got %v", ts1, *snap.Manifest.MinTimestamp)
+	}
+	if !snap.Manifest.MaxTimestamp.Equal(ts2) {
+		t.Errorf("expected MaxTimestamp %v, got %v", ts2, *snap.Manifest.MaxTimestamp)
+	}
+}
+
+func TestDataset_StreamWriteRecords_NonTimestampedRecords_OmitsMinMax(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory(), WithCodec(NewJSONLCodec()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	records := []any{
+		D{"id": "a", "value": 1},
+		D{"id": "b", "value": 2},
+	}
+	iter := &sliceIterator{records: records}
+
+	snap, err := ds.StreamWriteRecords(t.Context(), Metadata{}, iter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if snap.Manifest.MinTimestamp != nil {
+		t.Errorf("expected MinTimestamp to be nil, got %v", snap.Manifest.MinTimestamp)
+	}
+	if snap.Manifest.MaxTimestamp != nil {
+		t.Errorf("expected MaxTimestamp to be nil, got %v", snap.Manifest.MaxTimestamp)
+	}
+}
+
+func TestDataset_StreamWriteRecords_EmptyIterator(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory(), WithCodec(NewJSONLCodec()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	iter := &sliceIterator{records: []any{}}
+
+	snap, err := ds.StreamWriteRecords(t.Context(), Metadata{}, iter)
+	if err != nil {
+		t.Fatalf("StreamWriteRecords failed: %v", err)
+	}
+
+	if snap.Manifest.RowCount != 0 {
+		t.Errorf("expected RowCount 0, got %d", snap.Manifest.RowCount)
+	}
+}
+
+func TestDataset_StreamWriteRecords_IteratorError(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory(), WithCodec(NewJSONLCodec()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	iterErr := errors.New("iterator failure")
+	iter := &errorIterator{err: iterErr}
+
+	_, err = ds.StreamWriteRecords(t.Context(), Metadata{}, iter)
+	if err == nil {
+		t.Fatal("expected error from iterator, got nil")
+	}
+	if !strings.Contains(err.Error(), "iterator failure") {
+		t.Errorf("expected iterator failure error, got: %v", err)
+	}
+
+	// Verify no snapshot created
+	_, err = ds.Latest(t.Context())
+	if !errors.Is(err, ErrNoSnapshots) {
+		t.Errorf("expected ErrNoSnapshots after iterator error, got: %v", err)
+	}
+}
+
+func TestDataset_StreamWriteRecords_WithCompression(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory(),
+		WithCodec(NewJSONLCodec()),
+		WithCompressor(NewGzipCompressor()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	records := []any{
+		D{"id": "1", "data": "some compressible content"},
+		D{"id": "2", "data": "more compressible content"},
+	}
+	iter := &sliceIterator{records: records}
+
+	snap, err := ds.StreamWriteRecords(t.Context(), Metadata{}, iter)
+	if err != nil {
+		t.Fatalf("StreamWriteRecords failed: %v", err)
+	}
+
+	if snap.Manifest.Compressor != "gzip" {
+		t.Errorf("expected compressor 'gzip', got %q", snap.Manifest.Compressor)
+	}
+	if !strings.HasSuffix(snap.Manifest.Files[0].Path, ".gz") {
+		t.Errorf("expected .gz extension, got %s", snap.Manifest.Files[0].Path)
+	}
+
+	// Verify data can be read back
+	readData, err := ds.Read(t.Context(), snap.ID)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if len(readData) != 2 {
+		t.Errorf("expected 2 records, got %d", len(readData))
+	}
+}
+
+func TestDataset_StreamWriteRecords_ParentSnapshotLinked(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory(), WithCodec(NewJSONLCodec()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// First write (regular Write)
+	firstSnap, err := ds.Write(t.Context(), []any{D{"id": "1"}}, Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Second write (StreamWriteRecords)
+	iter := &sliceIterator{records: []any{D{"id": "2"}}}
+	secondSnap, err := ds.StreamWriteRecords(t.Context(), Metadata{}, iter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if secondSnap.Manifest.ParentSnapshotID != firstSnap.ID {
+		t.Errorf("expected parent %s, got %s", firstSnap.ID, secondSnap.Manifest.ParentSnapshotID)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Checksum tests
+// -----------------------------------------------------------------------------
+
+func TestDataset_Write_WithChecksum_RecordsChecksum(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory(), WithChecksum(NewMD5Checksum()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := ds.Write(t.Context(), []any{[]byte("hello world")}, Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify checksum algorithm recorded
+	if snap.Manifest.ChecksumAlgorithm != "md5" {
+		t.Errorf("expected ChecksumAlgorithm 'md5', got %q", snap.Manifest.ChecksumAlgorithm)
+	}
+
+	// Verify file has checksum
+	if len(snap.Manifest.Files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(snap.Manifest.Files))
+	}
+	if snap.Manifest.Files[0].Checksum == "" {
+		t.Error("expected non-empty checksum")
+	}
+	// MD5 produces 32 hex characters
+	if len(snap.Manifest.Files[0].Checksum) != 32 {
+		t.Errorf("expected 32 char MD5 checksum, got %d chars", len(snap.Manifest.Files[0].Checksum))
+	}
+}
+
+func TestDataset_Write_WithoutChecksum_OmitsChecksum(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := ds.Write(t.Context(), []any{[]byte("hello world")}, Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify no checksum algorithm recorded
+	if snap.Manifest.ChecksumAlgorithm != "" {
+		t.Errorf("expected empty ChecksumAlgorithm, got %q", snap.Manifest.ChecksumAlgorithm)
+	}
+
+	// Verify file has no checksum
+	if snap.Manifest.Files[0].Checksum != "" {
+		t.Errorf("expected empty checksum, got %q", snap.Manifest.Files[0].Checksum)
+	}
+}
+
+func TestDataset_StreamWrite_WithChecksum_RecordsChecksum(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory(), WithChecksum(NewMD5Checksum()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sw, err := ds.StreamWrite(t.Context(), Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = sw.Write([]byte("streaming data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := sw.Commit(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify checksum algorithm recorded
+	if snap.Manifest.ChecksumAlgorithm != "md5" {
+		t.Errorf("expected ChecksumAlgorithm 'md5', got %q", snap.Manifest.ChecksumAlgorithm)
+	}
+
+	// Verify file has checksum
+	if snap.Manifest.Files[0].Checksum == "" {
+		t.Error("expected non-empty checksum")
+	}
+	if len(snap.Manifest.Files[0].Checksum) != 32 {
+		t.Errorf("expected 32 char MD5 checksum, got %d chars", len(snap.Manifest.Files[0].Checksum))
+	}
+}
+
+func TestDataset_StreamWriteRecords_WithChecksum_RecordsChecksum(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory(),
+		WithCodec(NewJSONLCodec()),
+		WithChecksum(NewMD5Checksum()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	iter := &sliceIterator{records: []any{D{"id": "1"}, D{"id": "2"}}}
+	snap, err := ds.StreamWriteRecords(t.Context(), Metadata{}, iter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify checksum algorithm recorded
+	if snap.Manifest.ChecksumAlgorithm != "md5" {
+		t.Errorf("expected ChecksumAlgorithm 'md5', got %q", snap.Manifest.ChecksumAlgorithm)
+	}
+
+	// Verify file has checksum
+	if snap.Manifest.Files[0].Checksum == "" {
+		t.Error("expected non-empty checksum")
+	}
+	if len(snap.Manifest.Files[0].Checksum) != 32 {
+		t.Errorf("expected 32 char MD5 checksum, got %d chars", len(snap.Manifest.Files[0].Checksum))
+	}
+}
+
+func TestDataset_Checksum_ComputedOnCompressedData(t *testing.T) {
+	// Two datasets with same data but different compression
+	// should produce different checksums (since checksum is on stored bytes)
+	dsNoComp, err := NewDataset("test-no-comp", NewMemoryFactory(),
+		WithChecksum(NewMD5Checksum()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dsGzip, err := NewDataset("test-gzip", NewMemoryFactory(),
+		WithCompressor(NewGzipCompressor()),
+		WithChecksum(NewMD5Checksum()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data := []byte("compressible data that should produce different checksums")
+
+	snapNoComp, err := dsNoComp.Write(t.Context(), []any{data}, Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	snapGzip, err := dsGzip.Write(t.Context(), []any{data}, Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Both should have checksums
+	if snapNoComp.Manifest.Files[0].Checksum == "" {
+		t.Error("expected checksum for no-compression")
+	}
+	if snapGzip.Manifest.Files[0].Checksum == "" {
+		t.Error("expected checksum for gzip")
+	}
+
+	// Checksums should be different (stored bytes differ)
+	if snapNoComp.Manifest.Files[0].Checksum == snapGzip.Manifest.Files[0].Checksum {
+		t.Error("expected different checksums for different compression")
+	}
+}
+
+func TestDataset_Checksum_SameDataProducesSameChecksum(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory(), WithChecksum(NewMD5Checksum()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data := []byte("consistent data")
+
+	snap1, err := ds.Write(t.Context(), []any{data}, Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	snap2, err := ds.Write(t.Context(), []any{data}, Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Same data should produce same checksum
+	if snap1.Manifest.Files[0].Checksum != snap2.Manifest.Files[0].Checksum {
+		t.Errorf("expected same checksum for same data, got %s vs %s",
+			snap1.Manifest.Files[0].Checksum, snap2.Manifest.Files[0].Checksum)
 	}
 }
 
@@ -367,4 +1224,45 @@ func (c *testCodec) Encode(_ io.Writer, _ []any) error {
 
 func (c *testCodec) Decode(_ io.Reader) ([]any, error) {
 	return nil, nil //nolint:nilnil // stub for testing
+}
+
+// sliceIterator implements RecordIterator for testing.
+type sliceIterator struct {
+	records []any
+	index   int
+	current any
+}
+
+func (s *sliceIterator) Next() bool {
+	if s.index >= len(s.records) {
+		return false
+	}
+	s.current = s.records[s.index]
+	s.index++
+	return true
+}
+
+func (s *sliceIterator) Record() any {
+	return s.current
+}
+
+func (s *sliceIterator) Err() error {
+	return nil
+}
+
+// errorIterator implements RecordIterator that returns an error.
+type errorIterator struct {
+	err error
+}
+
+func (e *errorIterator) Next() bool {
+	return false
+}
+
+func (e *errorIterator) Record() any {
+	return nil
+}
+
+func (e *errorIterator) Err() error {
+	return e.err
 }

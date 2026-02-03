@@ -100,6 +100,10 @@ type Manifest struct {
 
 	// Partitioner records the partitioning strategy (e.g., "hive-dt", "noop").
 	Partitioner string `json:"partitioner"`
+
+	// ChecksumAlgorithm records the checksum algorithm used (e.g., "md5").
+	// Omitted when no checksum is configured.
+	ChecksumAlgorithm string `json:"checksum_algorithm,omitempty"`
 }
 
 // FileRef describes a single data file within a snapshot.
@@ -184,6 +188,30 @@ type Codec interface {
 }
 
 // -----------------------------------------------------------------------------
+// Streaming codec interfaces
+// -----------------------------------------------------------------------------
+
+// StreamingRecordCodec is implemented by codecs that support streaming record encoding.
+//
+// StreamWriteRecords requires a codec that implements this interface. Codecs that
+// do not support streaming should not implement this interface.
+type StreamingRecordCodec interface {
+	Codec
+
+	// NewStreamEncoder creates a streaming encoder that writes to w.
+	NewStreamEncoder(w io.Writer) (RecordStreamEncoder, error)
+}
+
+// RecordStreamEncoder writes records one at a time to a stream.
+type RecordStreamEncoder interface {
+	// WriteRecord encodes and writes a single record.
+	WriteRecord(record any) error
+
+	// Close finalizes the stream and flushes any buffered data.
+	Close() error
+}
+
+// -----------------------------------------------------------------------------
 // Compressor interface
 // -----------------------------------------------------------------------------
 
@@ -202,6 +230,32 @@ type Compressor interface {
 
 	// Decompress wraps a reader with decompression.
 	Decompress(r io.Reader) (io.ReadCloser, error)
+}
+
+// -----------------------------------------------------------------------------
+// Checksum interface
+// -----------------------------------------------------------------------------
+
+// Checksum computes integrity checksums for data files.
+//
+// Checksums are optional and configured via WithChecksum. When configured,
+// checksums are computed during write and recorded in manifests.
+type Checksum interface {
+	// Name returns the checksum algorithm identifier (e.g., "md5", "sha256").
+	Name() string
+
+	// NewHasher returns a new hash.Hash for computing checksums.
+	// The returned Hash can be used as an io.Writer to accumulate data.
+	NewHasher() HashWriter
+}
+
+// HashWriter combines hash computation with io.Writer.
+// Write data to accumulate the hash, then call Sum to get the result.
+type HashWriter interface {
+	io.Writer
+
+	// Sum returns the computed checksum as a hex-encoded string.
+	Sum() string
 }
 
 // -----------------------------------------------------------------------------
@@ -230,6 +284,59 @@ type Dataset interface {
 
 	// Latest returns the most recently committed snapshot.
 	Latest(ctx context.Context) (*Snapshot, error)
+
+	// StreamWrite returns a StreamWriter for single-pass streaming of a binary payload.
+	// Returns an error if metadata is nil or if a codec is configured.
+	StreamWrite(ctx context.Context, metadata Metadata) (StreamWriter, error)
+
+	// StreamWriteRecords consumes records via a pull-based iterator and streams them
+	// through a streaming-capable codec. Returns an error if metadata is nil or if
+	// the configured codec does not support streaming.
+	StreamWriteRecords(ctx context.Context, metadata Metadata, records RecordIterator) (*Snapshot, error)
+}
+
+// -----------------------------------------------------------------------------
+// StreamWriter interface
+// -----------------------------------------------------------------------------
+
+// StreamWriter supports single-pass streaming writes of binary data.
+//
+// A StreamWriter writes bytes directly to the final object path. The manifest
+// is written only on Commit. If Close is called before Commit, the stream is
+// aborted and no snapshot is created.
+type StreamWriter interface {
+	// Write writes bytes to the stream. Implements io.Writer.
+	Write(p []byte) (n int, err error)
+
+	// Commit finalizes the stream and writes the manifest.
+	// Returns the new snapshot on success.
+	Commit(ctx context.Context) (*Snapshot, error)
+
+	// Abort discards the stream without creating a snapshot.
+	// Attempts best-effort cleanup of partial objects.
+	Abort(ctx context.Context) error
+
+	// Close closes the stream. If Commit was not called, behaves as Abort.
+	Close() error
+}
+
+// -----------------------------------------------------------------------------
+// RecordIterator interface
+// -----------------------------------------------------------------------------
+
+// RecordIterator provides pull-based iteration over records.
+//
+// The typical usage pattern is:
+//
+//	for iter.Next() {
+//	    record := iter.Record()
+//	    // process record
+//	}
+//	if err := iter.Err(); err != nil { ... }
+type RecordIterator interface {
+	Next() bool  // Advances to the next record. Returns false when exhausted.
+	Record() any // Returns the current record. Only valid after Next returns true.
+	Err() error  // Returns any error encountered during iteration.
 }
 
 // -----------------------------------------------------------------------------
@@ -252,6 +359,12 @@ var (
 
 	// ErrRangeReadNotSupported indicates the store does not support range reads.
 	ErrRangeReadNotSupported = errRangeReadNotSupported{}
+
+	// ErrCodecConfigured indicates StreamWrite was called with a codec configured.
+	ErrCodecConfigured = errCodecConfigured{}
+
+	// ErrCodecNotStreamable indicates the configured codec does not support streaming.
+	ErrCodecNotStreamable = errCodecNotStreamable{}
 )
 
 type errNotFound struct{}
@@ -273,6 +386,16 @@ func (errNoManifests) Error() string { return "no manifests found (storage conta
 type errRangeReadNotSupported struct{}
 
 func (errRangeReadNotSupported) Error() string { return "range read not supported" }
+
+type errCodecConfigured struct{}
+
+func (errCodecConfigured) Error() string {
+	return "StreamWrite requires no codec; use StreamWriteRecords for structured data"
+}
+
+type errCodecNotStreamable struct{}
+
+func (errCodecNotStreamable) Error() string { return "codec does not support streaming" }
 
 // -----------------------------------------------------------------------------
 // Reader interface
