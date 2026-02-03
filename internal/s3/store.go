@@ -3,8 +3,9 @@
 // This adapter is EXPERIMENTAL. It supports AWS S3, MinIO, LocalStack,
 // and other S3-compatible object stores.
 //
-// Consistency: S3 provides strong read-after-write consistency (since Dec 2020).
-// List operations are also strongly consistent. However, commit semantics
+// Consistency: AWS S3 provides strong read-after-write consistency (since Dec 2020).
+// Other S3-compatible backends (MinIO, LocalStack, R2) may have different
+// consistency guarantees — consult their documentation. Commit semantics
 // rely on manifest presence: writers MUST write data objects before the manifest.
 package s3
 
