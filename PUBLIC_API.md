@@ -205,15 +205,16 @@ codec does not support streaming, `StreamWriteRecords` returns an error.
 - Checksums are computed and recorded in manifests only when configured.
 - `StreamWrite` is only valid when no codec is configured; otherwise it returns an error.
 - `StreamWriteRecords` requires a streaming-capable codec; otherwise it returns an error.
+- `StreamWriteRecords` does not support partitioning (single-pass streaming cannot partition).
 - Aborted streams leave no snapshot; partial objects may remain and require cleanup.
 
 ---
 
 ## Choosing a Write API
 
-- Use `Write` for in-memory data or codecs that do not support streaming.
-- Use `StreamWrite` for large binary payloads that should be streamed once.
-- Use `StreamWriteRecords` for large record streams with streaming-capable codecs.
+- Use `Write` for in-memory data, partitioned data, or codecs that do not support streaming.
+- Use `StreamWrite` for large binary payloads that should be streamed once (no codec).
+- Use `StreamWriteRecords` for large record streams with streaming-capable codecs (no partitioning).
 
 ---
 

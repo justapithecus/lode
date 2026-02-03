@@ -515,12 +515,20 @@ func (d *dataset) StreamWriteRecords(ctx context.Context, metadata Metadata, rec
 	if metadata == nil {
 		return nil, errors.New("lode: metadata must be non-nil (use empty map {} for no metadata)")
 	}
+	if records == nil {
+		return nil, errors.New("lode: records iterator must be non-nil")
+	}
 	if d.codec == nil {
 		return nil, errors.New("lode: StreamWriteRecords requires a codec")
 	}
 	streamCodec, ok := d.codec.(StreamingRecordCodec)
 	if !ok {
 		return nil, ErrCodecNotStreamable
+	}
+	// StreamWriteRecords writes to a single file and cannot partition records
+	// since that would require buffering to determine partition keys
+	if !d.layout.partitioner().isNoop() {
+		return nil, errors.New("lode: StreamWriteRecords does not support partitioning; use Write for partitioned data")
 	}
 
 	// Determine parent snapshot
@@ -1013,7 +1021,8 @@ func (sw *streamWriter) Commit(ctx context.Context) (*Snapshot, error) {
 		sw.mu.Unlock()
 		return nil, errors.New("lode: stream is closed")
 	}
-	sw.committed = true
+	// Mark as closed to prevent concurrent commits, but not committed until success
+	sw.closed = true
 	sw.mu.Unlock()
 
 	// Close compression writer (flushes final data)
@@ -1069,6 +1078,11 @@ func (sw *streamWriter) Commit(ctx context.Context) (*Snapshot, error) {
 		_ = sw.ds.store.Delete(ctx, sw.filePath) // best-effort cleanup
 		return nil, fmt.Errorf("lode: failed to write manifest: %w", err)
 	}
+
+	// Mark committed only after full success
+	sw.mu.Lock()
+	sw.committed = true
+	sw.mu.Unlock()
 
 	return &Snapshot{
 		ID:       sw.snapshotID,

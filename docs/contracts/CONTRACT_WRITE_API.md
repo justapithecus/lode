@@ -54,14 +54,17 @@ It is authoritative for any `Dataset` implementation.
 ### StreamWriteRecords Semantics
 
 - `StreamWriteRecords(ctx, metadata, records)` MUST return an error if metadata is nil.
+- `StreamWriteRecords` MUST return an error if records iterator is nil.
 - `StreamWriteRecords` MUST consume records via a pull-based iterator.
 - `StreamWriteRecords` MUST return an error if the configured codec does not support
   streaming record encoding.
+- `StreamWriteRecords` MUST return an error if partitioning is configured (non-noop
+  partitioner), since single-pass streaming cannot partition without buffering.
 - Streamed record writes MUST be single-pass writes to the final object path.
 - Streamed record writes MUST NOT mutate existing objects; all writes are new paths.
-- `Commit` MUST write the manifest and return the new snapshot.
-- A snapshot MUST NOT be visible before `Commit` writes the manifest.
-- `Abort` or `Close` without `Commit` MUST ensure no manifest is written.
+- On success, the manifest is written and the new snapshot is returned.
+- On error (iterator failure, codec error, storage error), no manifest is written
+  and best-effort cleanup of partial objects is attempted.
 - Row/event count MUST equal the total number of records consumed.
 - When a checksum component is configured, the checksum MUST be computed during
   streaming and recorded in the manifest for each file written.
