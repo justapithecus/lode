@@ -1,9 +1,20 @@
 // Package s3 provides an S3-compatible storage adapter for Lode.
 //
-// This adapter is EXPERIMENTAL. It supports AWS S3, MinIO, LocalStack,
+// This adapter supports AWS S3, MinIO, LocalStack, Cloudflare R2,
 // and other S3-compatible object stores.
 //
-// Consistency: AWS S3 provides strong read-after-write consistency (since Dec 2020).
+// # Contract Compliance
+//
+// This adapter implements CONTRACT_STORAGE.md obligations:
+//   - Put: Atomic immutability via If-None-Match conditional writes
+//   - Get/Exists/Delete: Standard ErrNotFound semantics
+//   - List: Full pagination support, returns all matching keys
+//   - ReadRange: True range reads via HTTP Range header
+//   - ReaderAt: Concurrent-safe random access reads
+//
+// # Consistency
+//
+// AWS S3 provides strong read-after-write consistency (since Dec 2020).
 // Other S3-compatible backends (MinIO, LocalStack, R2) may have different
 // consistency guarantees — consult their documentation. Commit semantics
 // rely on manifest presence: writers MUST write data objects before the manifest.

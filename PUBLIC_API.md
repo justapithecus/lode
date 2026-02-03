@@ -95,6 +95,7 @@ includes a curated set of components:
 **Storage adapters:**
 - `NewFSFactory(root)` - Filesystem storage
 - `NewMemoryFactory()` - In-memory storage
+- `s3.New(client, config)` - S3-compatible storage (see below)
 
 **Layouts:**
 - `NewDefaultLayout()` - Default novice-friendly layout (used automatically)
@@ -189,6 +190,45 @@ missing objects. Error semantics are stable and documented.
 
 `ListDatasets` returns `ErrNoManifests` when storage contains objects but
 no valid manifests.
+
+---
+
+## S3 Storage Adapter
+
+The `lode/s3` package provides an S3-compatible storage adapter.
+
+```go
+import (
+    "github.com/aws/aws-sdk-go-v2/config"
+    awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+
+    "github.com/justapithecus/lode/lode"
+    "github.com/justapithecus/lode/lode/s3"
+)
+
+// Load AWS config and create S3 client
+cfg, _ := config.LoadDefaultConfig(ctx)
+client := awss3.NewFromConfig(cfg)
+
+// Create Lode S3 store
+store, _ := s3.New(client, s3.Config{
+    Bucket: "my-bucket",
+    Prefix: "lode-data/",  // optional key prefix
+})
+
+// Use as a store factory
+ds, _ := lode.NewDataset("events", func() (lode.Store, error) {
+    return store, nil
+})
+```
+
+**Supported backends:** AWS S3, MinIO, LocalStack, Cloudflare R2, and other
+S3-compatible services.
+
+**Bucket requirement:** The bucket must exist before use. Lode does not create buckets.
+
+**Consistency:** AWS S3 provides strong read-after-write consistency.
+Other backends may differ — consult their documentation.
 
 ---
 

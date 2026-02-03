@@ -21,9 +21,9 @@ import (
 // These require running docker-compose services.
 //
 // To run:
-//   docker compose -f internal/s3/docker-compose.yaml up -d
-//   go test -v -tags=integration ./internal/s3/...
-//   docker compose -f internal/s3/docker-compose.yaml down
+//   docker compose -f lode/s3/docker-compose.yaml up -d
+//   go test -v -tags=integration ./lode/s3/...
+//   docker compose -f lode/s3/docker-compose.yaml down
 
 func skipIfNoS3(t *testing.T) {
 	if os.Getenv("LODE_S3_TESTS") != "1" {

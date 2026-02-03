@@ -204,12 +204,12 @@ Explore new adapters or codecs without expanding the public API.
 
 ### S3 Adapter (Experimental)
 
-**Status**: Implemented (internal/s3)
+**Status**: Implemented (lode/s3)
 
 The S3 adapter is available as an **experimental** internal implementation.
 It supports AWS S3, MinIO, LocalStack, and other S3-compatible object stores.
 
-**Location**: `internal/s3/`
+**Location**: `lode/s3/`
 
 **Consistency notes**:
 - S3 provides strong read-after-write consistency (since December 2020)
@@ -224,7 +224,7 @@ It supports AWS S3, MinIO, LocalStack, and other S3-compatible object stores.
 **Usage**:
 ```go
 import (
-    "github.com/justapithecus/lode/internal/s3"
+    "github.com/justapithecus/lode/lode/s3"
 )
 
 // For LocalStack

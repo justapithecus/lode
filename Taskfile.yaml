@@ -38,16 +38,16 @@ tasks:
   s3:up:
     desc: Start S3-compatible test services (LocalStack + MinIO)
     cmds:
-      - docker compose -f internal/s3/docker-compose.yaml up -d
+      - docker compose -f lode/s3/docker-compose.yaml up -d
 
   s3:down:
     desc: Stop S3-compatible test services
     cmds:
-      - docker compose -f internal/s3/docker-compose.yaml down
+      - docker compose -f lode/s3/docker-compose.yaml down
 
   s3:test:
     desc: Run S3 integration tests (requires s3:up first)
     env:
       LODE_S3_TESTS: "1"
     cmds:
-      - go test -v -tags=integration ./internal/s3/...
+      - go test -v -tags=integration ./lode/s3/...

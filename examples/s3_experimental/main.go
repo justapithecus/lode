@@ -1,7 +1,6 @@
-// Example: S3 (Experimental)
+// Example: S3 Storage Adapter
 //
-// This example uses the internal S3 adapter for demonstration purposes.
-// It is technically valid but EXPERIMENTAL and not part of the stable public API.
+// This example demonstrates using the S3 storage adapter with Lode.
 //
 // Requirements:
 // - An S3-compatible service (LocalStack or MinIO)
@@ -20,8 +19,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/credentials"
 
-	s3store "github.com/justapithecus/lode/internal/s3"
 	"github.com/justapithecus/lode/lode"
+	"github.com/justapithecus/lode/lode/s3"
 )
 
 func main() {
@@ -42,7 +41,7 @@ func run() error {
 	// Unique prefix to avoid collisions between runs.
 	prefix := fmt.Sprintf("examples/s3/%d/", time.Now().UnixNano())
 
-	client, err := s3store.NewClient(ctx, s3store.ClientConfig{
+	client, err := s3.NewClient(ctx, s3.ClientConfig{
 		Region:       region,
 		Endpoint:     endpoint,
 		UsePathStyle: true,
@@ -52,7 +51,7 @@ func run() error {
 		return fmt.Errorf("failed to create s3 client: %w", err)
 	}
 
-	store, err := s3store.New(client, s3store.Config{
+	store, err := s3.New(client, s3.Config{
 		Bucket: bucket,
 		Prefix: prefix,
 	})

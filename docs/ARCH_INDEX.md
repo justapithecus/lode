@@ -47,6 +47,7 @@ Contracts are authoritative over code.
 Public API surface.
 
 - `api.go` — core public interfaces, types, and error sentinels
+- `s3/` — S3-compatible storage adapter
 
 ---
 
@@ -54,7 +55,6 @@ Public API surface.
 
 Internal implementations.
 
-- `s3/` — experimental S3-compatible store
 - `testutil/` — internal test helpers
 
 ---
@@ -67,7 +67,7 @@ Example usage and integration references.
 - `hive_layout/` — partition-first layout with Hive partitioner
 - `manifest_driven/` — manifest-driven discovery demonstration
 - `blob_upload/` — raw blob write/read with default bundle
-- `s3_experimental/` — experimental S3 adapter example (internal)
+- `s3_experimental/` — S3 adapter example
 
 ---
 
