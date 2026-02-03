@@ -113,14 +113,11 @@ These indicate invalid configuration at setup time.
 
 | Error | Source | Meaning |
 |-------|--------|---------|
-| Panic | Reader/Dataset | Nil store provided |
-| Panic | Reader | Nil layout provided to `NewReaderWithLayout` |
-| Error | Dataset | Nil codec, compressor, or partitioner |
+| Error | Reader/Dataset | Nil store provided |
 
 **Behavior**:
 - `NewReader(nil)` panics.
-- `NewReaderWithLayout(store, nil)` panics.
-- `dataset.New` returns error for nil components.
+- `NewDataset(id, nil)` returns error.
 
 ---
 
