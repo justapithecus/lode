@@ -1,7 +1,6 @@
-// Example: S3 (Experimental)
+// Example: S3 Storage Adapter
 //
-// This example uses the internal S3 adapter for demonstration purposes.
-// It is technically valid but EXPERIMENTAL and not part of the stable public API.
+// This example demonstrates using the S3 storage adapter with Lode.
 //
 // Requirements:
 // - An S3-compatible service (LocalStack or MinIO)
@@ -18,10 +17,13 @@ import (
 	"os"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
-	s3store "github.com/justapithecus/lode/internal/s3"
 	"github.com/justapithecus/lode/lode"
+	"github.com/justapithecus/lode/lode/s3"
 )
 
 func main() {
@@ -42,17 +44,27 @@ func run() error {
 	// Unique prefix to avoid collisions between runs.
 	prefix := fmt.Sprintf("examples/s3/%d/", time.Now().UnixNano())
 
-	client, err := s3store.NewClient(ctx, s3store.ClientConfig{
-		Region:       region,
-		Endpoint:     endpoint,
-		UsePathStyle: true,
-		Credentials:  credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
-	})
+	// Create S3 client using AWS SDK directly.
+	// For AWS S3, use config.LoadDefaultConfig(ctx) without custom endpoint.
+	awsCfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion(region),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
+		),
+	)
 	if err != nil {
-		return fmt.Errorf("failed to create s3 client: %w", err)
+		return fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
-	store, err := s3store.New(client, s3store.Config{
+	// Configure for S3-compatible service (LocalStack).
+	// For AWS S3, omit BaseEndpoint and UsePathStyle.
+	client := awss3.NewFromConfig(awsCfg, func(o *awss3.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+		o.UsePathStyle = true
+	})
+
+	// Create Lode S3 store
+	store, err := s3.New(client, s3.Config{
 		Bucket: bucket,
 		Prefix: prefix,
 	})

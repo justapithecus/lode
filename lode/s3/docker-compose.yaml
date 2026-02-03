@@ -1,9 +1,9 @@
 # Docker Compose for S3-compatible integration tests
 #
 # Usage:
-#   docker compose -f internal/s3/docker-compose.yaml up -d
-#   LODE_S3_TESTS=1 go test -v ./internal/s3/...
-#   docker compose -f internal/s3/docker-compose.yaml down
+#   docker compose -f lode/s3/docker-compose.yaml up -d
+#   LODE_S3_TESTS=1 go test -v ./lode/s3/...
+#   docker compose -f lode/s3/docker-compose.yaml down
 
 services:
   localstack:

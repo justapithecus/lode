@@ -198,18 +198,19 @@ Explore new adapters or codecs without expanding the public API.
 - Manifest stats (optional, additive)
 
 ### Mini-milestones
-- [x] No API surface growth
+- [x] Minimal API surface (only `s3.New` and `s3.Config` exported)
 - [x] No backend-specific conditionals
-- [x] Explicitly marked experimental
+- [x] CONTRACT_STORAGE.md compliance verified
 
-### S3 Adapter (Experimental)
+### S3 Adapter
 
-**Status**: Implemented (internal/s3)
+**Status**: Promoted to public API (`lode/s3`)
 
-The S3 adapter is available as an **experimental** internal implementation.
-It supports AWS S3, MinIO, LocalStack, and other S3-compatible object stores.
+The S3 adapter is a stable public component supporting AWS S3, MinIO,
+LocalStack, Cloudflare R2, and other S3-compatible object stores.
+Client construction uses AWS SDK directly (see PUBLIC_API.md for examples).
 
-**Location**: `internal/s3/`
+**Location**: `lode/s3/`
 
 **Consistency notes**:
 - S3 provides strong read-after-write consistency (since December 2020)
@@ -224,18 +225,13 @@ It supports AWS S3, MinIO, LocalStack, and other S3-compatible object stores.
 **Usage**:
 ```go
 import (
-    "github.com/justapithecus/lode/internal/s3"
+    "github.com/aws/aws-sdk-go-v2/config"
+    awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+
+    "github.com/justapithecus/lode/lode/s3"
 )
 
-// For LocalStack
-client, _ := s3.NewLocalStackClient(ctx)
-store, _ := s3.New(client, s3.Config{Bucket: "my-bucket"})
-
-// For MinIO
-client, _ := s3.NewMinIOClient(ctx)
-store, _ := s3.New(client, s3.Config{Bucket: "my-bucket"})
-
-// For AWS S3 (use standard AWS SDK config)
+// AWS S3 (use standard AWS SDK config)
 cfg, _ := config.LoadDefaultConfig(ctx)
 client := awss3.NewFromConfig(cfg)
 store, _ := s3.New(client, s3.Config{Bucket: "my-bucket", Prefix: "datasets/"})

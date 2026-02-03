@@ -4,6 +4,7 @@ package s3
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +13,8 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/justapithecus/lode/lode"
@@ -21,14 +24,44 @@ import (
 // These require running docker-compose services.
 //
 // To run:
-//   docker compose -f internal/s3/docker-compose.yaml up -d
-//   go test -v -tags=integration ./internal/s3/...
-//   docker compose -f internal/s3/docker-compose.yaml down
+//   docker compose -f lode/s3/docker-compose.yaml up -d
+//   go test -v -tags=integration ./lode/s3/...
+//   docker compose -f lode/s3/docker-compose.yaml down
 
 func skipIfNoS3(t *testing.T) {
 	if os.Getenv("LODE_S3_TESTS") != "1" {
 		t.Skip("LODE_S3_TESTS=1 not set; skipping integration tests")
 	}
+}
+
+// newLocalStackClient creates an S3 client for LocalStack (integration tests only).
+func newLocalStackClient(ctx context.Context) (*s3.Client, error) {
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String("http://localhost:4566")
+		o.UsePathStyle = true
+	}), nil
+}
+
+// newMinIOClient creates an S3 client for MinIO (integration tests only).
+func newMinIOClient(ctx context.Context) (*s3.Client, error) {
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("minioadmin", "minioadmin", "")),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String("http://localhost:9000")
+		o.UsePathStyle = true
+	}), nil
 }
 
 // -----------------------------------------------------------------------------
@@ -39,7 +72,7 @@ func TestLocalStack_Integration(t *testing.T) {
 	skipIfNoS3(t)
 
 	ctx := t.Context()
-	client, err := NewLocalStackClient(ctx)
+	client, err := newLocalStackClient(ctx)
 	if err != nil {
 		t.Fatalf("failed to create LocalStack client: %v", err)
 	}
@@ -81,7 +114,7 @@ func TestMinIO_Integration(t *testing.T) {
 	skipIfNoS3(t)
 
 	ctx := t.Context()
-	client, err := NewMinIOClient(ctx)
+	client, err := newMinIOClient(ctx)
 	if err != nil {
 		t.Fatalf("failed to create MinIO client: %v", err)
 	}

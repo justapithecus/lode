@@ -81,6 +81,14 @@ Reads always target a snapshot explicitly.
 
 ---
 
+## Supported Backends
+
+- **Filesystem** — Local storage via `NewFSFactory`
+- **In-memory** — Testing via `NewMemoryFactory`
+- **S3** — AWS S3, MinIO, LocalStack, R2 via `lode/s3`
+
+---
+
 ## Status
 
 Lode is currently **pre-v0** and under active design.
@@ -91,8 +99,8 @@ If you are evaluating Lode, focus on:
 - metadata visibility
 - API clarity
 
-Usage overview: `PUBLIC_API.md`  
-Concrete usage: `examples/`  
+Usage overview: `PUBLIC_API.md`
+Concrete usage: `examples/`
 Implementation milestones: `docs/IMPLEMENTATION_PLAN.md`
 
 ---
