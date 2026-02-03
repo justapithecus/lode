@@ -1,12 +1,12 @@
 # Blob Upload — Large Binary Guidance
 
 This example focuses on raw blob storage using the default bundle. For large
-binary artifacts, prefer staged streaming writes rather than modeling chunks
+binary artifacts, prefer single-pass streaming writes rather than modeling chunks
 as logical records.
 
 ## Recommended Pattern
 
-- Use `StreamWrite` to write the binary payload as data objects.
+- Use `StreamWrite` to write the binary payload directly to its final object path.
 - The snapshot becomes visible only after `Commit` writes the manifest.
 - If a stream is aborted or fails, no snapshot is created.
 
@@ -19,7 +19,7 @@ For efficient partial reads:
 
 ## Cleanup Guidance
 
-Staged objects may exist if a stream is aborted. Callers should:
+Partial objects may exist if a stream is aborted. Callers should:
 - Use a predictable staging prefix for cleanup.
 - Track staged object keys and delete them explicitly when abandoning a stream.
 

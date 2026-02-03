@@ -181,11 +181,15 @@ valid; nil metadata is not.
 
 `Dataset.Write(ctx, data, metadata)` creates a snapshot from in-memory data.
 
-`Dataset.StreamWrite(ctx, metadata)` returns a `StreamWriter` for staged streaming
-writes of a single binary payload. `StreamWriter.Write` streams bytes,
-`Commit` finalizes and returns a snapshot, and `Abort` discards the staged write.
+`Dataset.StreamWrite(ctx, metadata)` returns a `StreamWriter` for single-pass
+streaming writes of a single binary payload. `StreamWriter.Write` streams bytes,
+`Commit` finalizes and returns a snapshot, and `Abort` discards the write.
 If `Close` is called before `Commit`, the stream is aborted and no snapshot is created.
 Streamed writes are raw-blob only: codecs are not applied and row count is `1`.
+
+`Dataset.StreamWriteRecords(ctx, metadata, records)` consumes a pull-based iterator
+of records and streams them through a streaming-capable codec. If the configured
+codec does not support streaming, `StreamWriteRecords` returns an error.
 
 ---
 
@@ -200,7 +204,16 @@ Streamed writes are raw-blob only: codecs are not applied and row count is `1`.
 - `ReaderAt` may return an `io.ReaderAt` that also implements `io.Closer`; close it when done.
 - Checksums are computed and recorded in manifests only when configured.
 - `StreamWrite` is only valid when no codec is configured; otherwise it returns an error.
-- Aborted streams leave no snapshot; staged objects may remain and require cleanup.
+- `StreamWriteRecords` requires a streaming-capable codec; otherwise it returns an error.
+- Aborted streams leave no snapshot; partial objects may remain and require cleanup.
+
+---
+
+## Choosing a Write API
+
+- Use `Write` for in-memory data or codecs that do not support streaming.
+- Use `StreamWrite` for large binary payloads that should be streamed once.
+- Use `StreamWriteRecords` for large record streams with streaming-capable codecs.
 
 ---
 

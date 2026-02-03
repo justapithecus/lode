@@ -44,11 +44,27 @@ It is authoritative for any `Dataset` implementation.
 - A snapshot MUST NOT be visible before `Commit` writes the manifest.
 - `StreamWriter.Abort(ctx)` MUST ensure no manifest is written.
 - `StreamWriter.Close()` without `Commit` MUST behave as `Abort`.
-- Streamed writes MUST NOT mutate existing objects; all staged objects are new paths.
+- Streamed writes MUST be single-pass writes to the final object path.
+- Streamed writes MUST NOT mutate existing objects; all writes are new paths.
 - Streamed writes MUST set row/event count to `1`.
-- When a checksum component is configured, `Commit` MUST record the component name
-  and a checksum value for each file written.
+- When a checksum component is configured, the checksum MUST be computed during
+  streaming and recorded in the manifest for each file written.
 - When a codec is configured, `StreamWrite` MUST return an error.
+
+### StreamWriteRecords Semantics
+
+- `StreamWriteRecords(ctx, metadata, records)` MUST return an error if metadata is nil.
+- `StreamWriteRecords` MUST consume records via a pull-based iterator.
+- `StreamWriteRecords` MUST return an error if the configured codec does not support
+  streaming record encoding.
+- Streamed record writes MUST be single-pass writes to the final object path.
+- Streamed record writes MUST NOT mutate existing objects; all writes are new paths.
+- `Commit` MUST write the manifest and return the new snapshot.
+- A snapshot MUST NOT be visible before `Commit` writes the manifest.
+- `Abort` or `Close` without `Commit` MUST ensure no manifest is written.
+- Row/event count MUST equal the total number of records consumed.
+- When a checksum component is configured, the checksum MUST be computed during
+  streaming and recorded in the manifest for each file written.
 
 ### Timestamp computation
 
@@ -60,6 +76,7 @@ It is authoritative for any `Dataset` implementation.
   computation.
 - When no records implement `Timestamped`, both timestamp fields MUST be `nil`.
 - Timestamp computation is explicit (via interface implementation), not inferred.
+- The same timestamp rules apply to `StreamWriteRecords` as records are consumed.
 
 ### Empty dataset behavior
 
