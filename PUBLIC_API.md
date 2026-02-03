@@ -148,7 +148,7 @@ Example:
 type Event struct {
     ID        string
     EventTime time.Time
-    Data      map[string]any
+    Data      lode.D
 }
 
 func (e Event) Timestamp() time.Time { return e.EventTime }
@@ -157,7 +157,7 @@ func (e Event) Timestamp() time.Time { return e.EventTime }
 ds.Write(ctx, []any{Event{...}, Event{...}}, lode.Metadata{})
 ```
 
-Records that do not implement `Timestamped` (including `map[string]any`)
+Records that do not implement `Timestamped` (including `lode.D`)
 result in `nil` timestamp fields in the manifest—this is valid and indicates
 timestamps are not applicable for that snapshot.
 
