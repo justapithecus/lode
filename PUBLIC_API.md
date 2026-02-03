@@ -197,33 +197,90 @@ no valid manifests.
 
 The `lode/s3` package provides an S3-compatible storage adapter.
 
+**Public API:**
+- `s3.New(client, config)` - Create store from AWS SDK client
+- `s3.Config{Bucket, Prefix}` - Store configuration
+
+Client construction uses the AWS SDK directly. This keeps Lode's API surface
+minimal while giving you full control over credentials, endpoints, and options.
+
+### AWS S3
+
 ```go
 import (
     "github.com/aws/aws-sdk-go-v2/config"
     awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
-    "github.com/justapithecus/lode/lode"
     "github.com/justapithecus/lode/lode/s3"
 )
 
-// Load AWS config and create S3 client
 cfg, _ := config.LoadDefaultConfig(ctx)
 client := awss3.NewFromConfig(cfg)
 
-// Create Lode S3 store
 store, _ := s3.New(client, s3.Config{
     Bucket: "my-bucket",
-    Prefix: "lode-data/",  // optional key prefix
-})
-
-// Use as a store factory
-ds, _ := lode.NewDataset("events", func() (lode.Store, error) {
-    return store, nil
+    Prefix: "lode-data/",
 })
 ```
 
-**Supported backends:** AWS S3, MinIO, LocalStack, Cloudflare R2, and other
-S3-compatible services.
+### LocalStack
+
+```go
+import (
+    "github.com/aws/aws-sdk-go-v2/aws"
+    "github.com/aws/aws-sdk-go-v2/config"
+    "github.com/aws/aws-sdk-go-v2/credentials"
+    awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+
+    "github.com/justapithecus/lode/lode/s3"
+)
+
+cfg, _ := config.LoadDefaultConfig(ctx,
+    config.WithRegion("us-east-1"),
+    config.WithCredentialsProvider(
+        credentials.NewStaticCredentialsProvider("test", "test", ""),
+    ),
+)
+client := awss3.NewFromConfig(cfg, func(o *awss3.Options) {
+    o.BaseEndpoint = aws.String("http://localhost:4566")
+    o.UsePathStyle = true
+})
+
+store, _ := s3.New(client, s3.Config{Bucket: "my-bucket"})
+```
+
+### MinIO
+
+```go
+cfg, _ := config.LoadDefaultConfig(ctx,
+    config.WithRegion("us-east-1"),
+    config.WithCredentialsProvider(
+        credentials.NewStaticCredentialsProvider("minioadmin", "minioadmin", ""),
+    ),
+)
+client := awss3.NewFromConfig(cfg, func(o *awss3.Options) {
+    o.BaseEndpoint = aws.String("http://localhost:9000")
+    o.UsePathStyle = true
+})
+
+store, _ := s3.New(client, s3.Config{Bucket: "my-bucket"})
+```
+
+### Cloudflare R2
+
+```go
+cfg, _ := config.LoadDefaultConfig(ctx,
+    config.WithRegion("auto"),
+    config.WithCredentialsProvider(
+        credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, ""),
+    ),
+)
+client := awss3.NewFromConfig(cfg, func(o *awss3.Options) {
+    o.BaseEndpoint = aws.String("https://" + accountID + ".r2.cloudflarestorage.com")
+})
+
+store, _ := s3.New(client, s3.Config{Bucket: "my-bucket"})
+```
 
 **Bucket requirement:** The bucket must exist before use. Lode does not create buckets.
 

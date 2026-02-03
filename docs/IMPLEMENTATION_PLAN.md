@@ -198,16 +198,17 @@ Explore new adapters or codecs without expanding the public API.
 - Manifest stats (optional, additive)
 
 ### Mini-milestones
-- [x] No API surface growth
+- [x] Minimal API surface (only `s3.New` and `s3.Config` exported)
 - [x] No backend-specific conditionals
-- [x] Explicitly marked experimental
+- [x] CONTRACT_STORAGE.md compliance verified
 
-### S3 Adapter (Experimental)
+### S3 Adapter
 
-**Status**: Implemented (lode/s3)
+**Status**: Promoted to public API (`lode/s3`)
 
-The S3 adapter is available as an **experimental** internal implementation.
-It supports AWS S3, MinIO, LocalStack, and other S3-compatible object stores.
+The S3 adapter is a stable public component supporting AWS S3, MinIO,
+LocalStack, Cloudflare R2, and other S3-compatible object stores.
+Client construction uses AWS SDK directly (see PUBLIC_API.md for examples).
 
 **Location**: `lode/s3/`
 
