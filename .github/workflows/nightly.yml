@@ -12,7 +12,7 @@ jobs:
     steps:
       - name: "📥 Checkout"
         uses: actions/checkout@v4
-      - name: "🧰 Setup mise"
+      - name: "🧰 Setup"
         uses: jdx/mise-action@v2
-      - name: "🧪 task test:race"
+      - name: "🧪 Race Tests"
         run: task test:race
