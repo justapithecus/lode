@@ -136,6 +136,60 @@ func run() error {
 		fmt.Printf("  %s: %v\n", k, v)
 	}
 
+	// -------------------------------------------------------------------------
+	// STREAM WRITE: Demonstrate streaming write for large blobs
+	// -------------------------------------------------------------------------
+	fmt.Println("\n=== STREAM WRITE ===")
+
+	// Create another dataset for streaming example
+	dsStream, err := lode.NewDataset("artifacts-stream", storeFactory)
+	if err != nil {
+		return fmt.Errorf("failed to create streaming dataset: %w", err)
+	}
+
+	// StreamWrite is for large binary payloads that should be streamed once
+	// Data flows directly to the final object path (no temp files)
+	sw, err := dsStream.StreamWrite(ctx, lode.Metadata{
+		"content_type": "application/octet-stream",
+		"description":  "streamed blob",
+	})
+	if err != nil {
+		return fmt.Errorf("failed to start stream write: %w", err)
+	}
+
+	// Write data in chunks (simulating streaming from a source)
+	chunks := [][]byte{
+		[]byte("First chunk of data. "),
+		[]byte("Second chunk of data. "),
+		[]byte("Final chunk of data."),
+	}
+	for _, chunk := range chunks {
+		if _, err := sw.Write(chunk); err != nil {
+			// On error, abort cleans up partial objects (best-effort)
+			_ = sw.Abort(ctx)
+			return fmt.Errorf("failed to write chunk: %w", err)
+		}
+	}
+
+	// Commit finalizes the stream and writes the manifest
+	// The snapshot becomes visible only after this succeeds
+	streamSnap, err := sw.Commit(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to commit stream: %w", err)
+	}
+
+	fmt.Printf("Created streaming snapshot: %s\n", streamSnap.ID)
+	fmt.Printf("  Row count: %d\n", streamSnap.Manifest.RowCount)
+	fmt.Printf("  File size: %d bytes\n", streamSnap.Manifest.Files[0].SizeBytes)
+
+	// Read back and verify
+	streamData, err := dsStream.Read(ctx, streamSnap.ID)
+	if err != nil {
+		return fmt.Errorf("failed to read streamed blob: %w", err)
+	}
+	streamBlob := streamData[0].([]byte)
+	fmt.Printf("  Content: %q\n", string(streamBlob))
+
 	fmt.Println("\n=== SUCCESS ===")
 	fmt.Println("Raw blob upload and read complete!")
 	fmt.Println("\nKey points demonstrated:")
@@ -144,6 +198,8 @@ func run() error {
 	fmt.Println("  3. Read returns single []byte element")
 	fmt.Println("  4. Metadata is explicit and required")
 	fmt.Println("  5. RowCount is always 1 for raw blobs")
+	fmt.Println("  6. StreamWrite for large blobs (single-pass, no temp files)")
+	fmt.Println("  7. Commit makes snapshot visible; Abort leaves no snapshot")
 
 	return nil
 }

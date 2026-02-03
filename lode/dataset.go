@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -24,6 +26,7 @@ type datasetConfig struct {
 	layout     layout
 	compressor Compressor
 	codec      Codec
+	checksum   Checksum
 }
 
 // Option configures dataset or reader construction.
@@ -148,6 +151,30 @@ func (o *codecOption) applyReader(*readerConfig) error {
 	return fmt.Errorf("WithCodec: %w", ErrOptionNotValidForReader)
 }
 
+// checksumOption implements Option for WithChecksum (dataset-only).
+type checksumOption struct {
+	checksum Checksum
+}
+
+// WithChecksum sets the checksum algorithm for the dataset.
+// Default: none (no checksums).
+// This option is only valid for NewDataset.
+//
+// When a checksum is configured, checksums are computed during write
+// and recorded in the manifest for each data file.
+func WithChecksum(c Checksum) Option {
+	return &checksumOption{checksum: c}
+}
+
+func (o *checksumOption) applyDataset(cfg *datasetConfig) error {
+	cfg.checksum = o.checksum
+	return nil
+}
+
+func (o *checksumOption) applyReader(*readerConfig) error {
+	return fmt.Errorf("WithChecksum: %w", ErrOptionNotValidForReader)
+}
+
 // -----------------------------------------------------------------------------
 // Dataset Implementation
 // -----------------------------------------------------------------------------
@@ -159,6 +186,7 @@ type dataset struct {
 	layout     layout
 	compressor Compressor
 	codec      Codec
+	checksum   Checksum
 }
 
 // NewDataset creates a dataset with documented defaults.
@@ -172,6 +200,7 @@ type dataset struct {
 //   - WithLayout(l) to use a different layout (configures both paths AND partitioning)
 //   - WithCompressor(c) to use compression
 //   - WithCodec(c) to use structured records with a codec
+//   - WithChecksum(c) to enable file checksums
 func NewDataset(id DatasetID, factory StoreFactory, opts ...Option) (Dataset, error) {
 	if factory == nil {
 		return nil, errors.New("lode: store factory is required")
@@ -214,6 +243,7 @@ func NewDataset(id DatasetID, factory StoreFactory, opts ...Option) (Dataset, er
 		layout:     cfg.layout,
 		compressor: cfg.compressor,
 		codec:      cfg.codec,
+		checksum:   cfg.checksum,
 	}, nil
 }
 
@@ -302,6 +332,9 @@ func (d *dataset) Write(ctx context.Context, data []any, metadata Metadata) (*Sn
 		Codec:            codecName,
 		Compressor:       d.compressor.Name(),
 		Partitioner:      d.layout.partitioner().name(),
+	}
+	if d.checksum != nil {
+		manifest.ChecksumAlgorithm = d.checksum.Name()
 	}
 
 	if err := d.writeManifests(ctx, snapshotID, manifest, partitionKeys); err != nil {
@@ -414,6 +447,243 @@ func (d *dataset) Latest(ctx context.Context) (*Snapshot, error) {
 	return snapshots[len(snapshots)-1], nil
 }
 
+func (d *dataset) StreamWrite(ctx context.Context, metadata Metadata) (StreamWriter, error) {
+	if metadata == nil {
+		return nil, errors.New("lode: metadata must be non-nil (use empty map {} for no metadata)")
+	}
+	if d.codec != nil {
+		return nil, ErrCodecConfigured
+	}
+
+	// Determine parent snapshot
+	var parentID SnapshotID
+	latest, err := d.Latest(ctx)
+	if err != nil && !errors.Is(err, ErrNoSnapshots) {
+		return nil, fmt.Errorf("lode: failed to get latest snapshot: %w", err)
+	}
+	if latest != nil {
+		parentID = latest.ID
+	}
+
+	snapshotID := SnapshotID(generateID())
+	fileName := "blob" + d.compressor.Extension()
+	filePath := d.layout.dataFilePath(d.id, snapshotID, "", fileName)
+
+	// Create pipe for streaming to store
+	pr, pw := io.Pipe()
+
+	// Wrap with counting writer to track compressed size
+	cw := &countingWriter{w: pw}
+
+	// Set up base writer, optionally with checksum
+	var baseWriter io.Writer = cw
+	var hasher HashWriter
+	if d.checksum != nil {
+		hasher = d.checksum.NewHasher()
+		baseWriter = io.MultiWriter(cw, hasher)
+	}
+
+	// Wrap with compression
+	compWriter, err := d.compressor.Compress(baseWriter)
+	if err != nil {
+		_ = pw.Close()
+		return nil, fmt.Errorf("lode: failed to create compressor: %w", err)
+	}
+
+	// Start store.Put in background
+	putDone := make(chan error, 1)
+	go func() {
+		putDone <- d.store.Put(ctx, filePath, pr)
+	}()
+
+	return &streamWriter{
+		ds:          d,
+		ctx:         ctx,
+		metadata:    metadata,
+		snapshotID:  snapshotID,
+		parentID:    parentID,
+		filePath:    filePath,
+		pipeWriter:  pw,
+		compWriter:  compWriter,
+		countWriter: cw,
+		hasher:      hasher,
+		putDone:     putDone,
+	}, nil
+}
+
+func (d *dataset) StreamWriteRecords(ctx context.Context, metadata Metadata, records RecordIterator) (*Snapshot, error) {
+	if metadata == nil {
+		return nil, errors.New("lode: metadata must be non-nil (use empty map {} for no metadata)")
+	}
+	if d.codec == nil {
+		return nil, errors.New("lode: StreamWriteRecords requires a codec")
+	}
+	streamCodec, ok := d.codec.(StreamingRecordCodec)
+	if !ok {
+		return nil, ErrCodecNotStreamable
+	}
+
+	// Determine parent snapshot
+	var parentID SnapshotID
+	latest, err := d.Latest(ctx)
+	if err != nil && !errors.Is(err, ErrNoSnapshots) {
+		return nil, fmt.Errorf("lode: failed to get latest snapshot: %w", err)
+	}
+	if latest != nil {
+		parentID = latest.ID
+	}
+
+	snapshotID := SnapshotID(generateID())
+	fileName := "data" + d.compressor.Extension()
+	filePath := d.layout.dataFilePath(d.id, snapshotID, "", fileName)
+
+	// Create pipe for streaming to store
+	pr, pw := io.Pipe()
+
+	// Wrap with counting writer to track compressed size
+	cw := &countingWriter{w: pw}
+
+	// Set up base writer, optionally with checksum
+	var baseWriter io.Writer = cw
+	var hasher HashWriter
+	if d.checksum != nil {
+		hasher = d.checksum.NewHasher()
+		baseWriter = io.MultiWriter(cw, hasher)
+	}
+
+	// Wrap with compression
+	compWriter, err := d.compressor.Compress(baseWriter)
+	if err != nil {
+		_ = pw.Close()
+		return nil, fmt.Errorf("lode: failed to create compressor: %w", err)
+	}
+
+	// Create streaming encoder
+	encoder, err := streamCodec.NewStreamEncoder(compWriter)
+	if err != nil {
+		_ = compWriter.Close()
+		_ = pw.Close()
+		return nil, fmt.Errorf("lode: failed to create stream encoder: %w", err)
+	}
+
+	// Start store.Put in background
+	putDone := make(chan error, 1)
+	go func() {
+		putDone <- d.store.Put(ctx, filePath, pr)
+	}()
+
+	// Stream records through encoder, tracking count and timestamps
+	var rowCount int64
+	var minTs, maxTs *time.Time
+
+	for records.Next() {
+		record := records.Record()
+
+		if err := encoder.WriteRecord(record); err != nil {
+			// Abort on error
+			_ = encoder.Close()
+			_ = compWriter.Close()
+			_ = pw.CloseWithError(err)
+			<-putDone
+			_ = d.store.Delete(ctx, filePath)
+			return nil, fmt.Errorf("lode: failed to write record: %w", err)
+		}
+
+		rowCount++
+
+		// Track timestamps from Timestamped records
+		if ts, ok := record.(Timestamped); ok {
+			t := ts.Timestamp()
+			if minTs == nil || t.Before(*minTs) {
+				minTs = &t
+			}
+			if maxTs == nil || t.After(*maxTs) {
+				maxTs = &t
+			}
+		}
+	}
+
+	// Check for iterator errors
+	if err := records.Err(); err != nil {
+		_ = encoder.Close()
+		_ = compWriter.Close()
+		_ = pw.CloseWithError(err)
+		<-putDone
+		_ = d.store.Delete(ctx, filePath)
+		return nil, fmt.Errorf("lode: record iterator error: %w", err)
+	}
+
+	// Close encoder (finalizes format)
+	if err := encoder.Close(); err != nil {
+		_ = compWriter.Close()
+		_ = pw.CloseWithError(err)
+		<-putDone
+		_ = d.store.Delete(ctx, filePath)
+		return nil, fmt.Errorf("lode: failed to close encoder: %w", err)
+	}
+
+	// Close compression (flushes final data)
+	if err := compWriter.Close(); err != nil {
+		_ = pw.CloseWithError(err)
+		<-putDone
+		_ = d.store.Delete(ctx, filePath)
+		return nil, fmt.Errorf("lode: failed to close compressor: %w", err)
+	}
+
+	// Close pipe (signals EOF to store.Put)
+	if err := pw.Close(); err != nil {
+		<-putDone
+		_ = d.store.Delete(ctx, filePath)
+		return nil, fmt.Errorf("lode: failed to close pipe: %w", err)
+	}
+
+	// Wait for store.Put to complete
+	if err := <-putDone; err != nil {
+		_ = d.store.Delete(ctx, filePath)
+		return nil, fmt.Errorf("lode: failed to write data: %w", err)
+	}
+
+	// Build file reference with optional checksum
+	fileRef := FileRef{
+		Path:      filePath,
+		SizeBytes: cw.n,
+	}
+	if hasher != nil {
+		fileRef.Checksum = hasher.Sum()
+	}
+
+	// Build manifest
+	manifest := &Manifest{
+		SchemaName:       manifestSchemaName,
+		FormatVersion:    manifestFormatVersion,
+		DatasetID:        d.id,
+		SnapshotID:       snapshotID,
+		CreatedAt:        time.Now().UTC(),
+		Metadata:         metadata,
+		Files:            []FileRef{fileRef},
+		ParentSnapshotID: parentID,
+		RowCount:         rowCount,
+		MinTimestamp:     minTs,
+		MaxTimestamp:     maxTs,
+		Codec:            d.codec.Name(),
+		Compressor:       d.compressor.Name(),
+		Partitioner:      d.layout.partitioner().name(),
+	}
+	if d.checksum != nil {
+		manifest.ChecksumAlgorithm = d.checksum.Name()
+	}
+
+	if err := d.writeManifests(ctx, snapshotID, manifest, []string{""}); err != nil {
+		_ = d.store.Delete(ctx, filePath) // best-effort cleanup
+		return nil, fmt.Errorf("lode: failed to write manifest: %w", err)
+	}
+
+	return &Snapshot{
+		ID:       snapshotID,
+		Manifest: manifest,
+	}, nil
+}
+
 func (d *dataset) partitionRecords(records []any) (map[string][]any, error) {
 	partitions := make(map[string][]any)
 	part := d.layout.partitioner()
@@ -453,10 +723,19 @@ func (d *dataset) writeRawBlob(ctx context.Context, snapshotID SnapshotID, data 
 		return FileRef{}, err
 	}
 
-	return FileRef{
+	fileRef := FileRef{
 		Path:      filePath,
 		SizeBytes: int64(len(compressedData)),
-	}, nil
+	}
+
+	// Compute checksum on stored (compressed) bytes
+	if d.checksum != nil {
+		hasher := d.checksum.NewHasher()
+		_, _ = hasher.Write(compressedData)
+		fileRef.Checksum = hasher.Sum()
+	}
+
+	return fileRef, nil
 }
 
 func (d *dataset) writeDataFile(ctx context.Context, snapshotID SnapshotID, partKey string, records []any) (FileRef, error) {
@@ -483,10 +762,19 @@ func (d *dataset) writeDataFile(ctx context.Context, snapshotID SnapshotID, part
 		return FileRef{}, err
 	}
 
-	return FileRef{
+	fileRef := FileRef{
 		Path:      filePath,
 		SizeBytes: int64(len(data)),
-	}, nil
+	}
+
+	// Compute checksum on stored (compressed) bytes
+	if d.checksum != nil {
+		hasher := d.checksum.NewHasher()
+		_, _ = hasher.Write(data)
+		fileRef.Checksum = hasher.Sum()
+	}
+
+	return fileRef, nil
 }
 
 func (d *dataset) readRawBlob(ctx context.Context, filePath string) ([]byte, error) {
@@ -667,4 +955,177 @@ func extractTimestamps(data []any) (minTs, maxTs *time.Time) {
 	}
 
 	return minTs, maxTs
+}
+
+// -----------------------------------------------------------------------------
+// StreamWriter Implementation
+// -----------------------------------------------------------------------------
+
+// streamWriter implements StreamWriter for raw binary streaming writes.
+type streamWriter struct {
+	ds          *dataset
+	ctx         context.Context
+	metadata    Metadata
+	snapshotID  SnapshotID
+	parentID    SnapshotID
+	filePath    string
+	pipeWriter  *io.PipeWriter
+	compWriter  io.WriteCloser
+	countWriter *countingWriter
+	hasher      HashWriter
+	putDone     chan error
+
+	mu        sync.Mutex
+	committed bool
+	aborted   bool
+	closed    bool
+	writeErr  error
+}
+
+func (sw *streamWriter) Write(p []byte) (n int, err error) {
+	sw.mu.Lock()
+	if sw.closed || sw.aborted || sw.committed {
+		sw.mu.Unlock()
+		return 0, errors.New("lode: stream is closed")
+	}
+	if sw.writeErr != nil {
+		sw.mu.Unlock()
+		return 0, sw.writeErr
+	}
+	sw.mu.Unlock()
+
+	n, err = sw.compWriter.Write(p)
+	if err != nil {
+		sw.mu.Lock()
+		sw.writeErr = err
+		sw.mu.Unlock()
+	}
+	return n, err
+}
+
+func (sw *streamWriter) Commit(ctx context.Context) (*Snapshot, error) {
+	sw.mu.Lock()
+	if sw.committed {
+		sw.mu.Unlock()
+		return nil, errors.New("lode: stream already committed")
+	}
+	if sw.aborted || sw.closed {
+		sw.mu.Unlock()
+		return nil, errors.New("lode: stream is closed")
+	}
+	sw.committed = true
+	sw.mu.Unlock()
+
+	// Close compression writer (flushes final data)
+	if err := sw.compWriter.Close(); err != nil {
+		_ = sw.pipeWriter.CloseWithError(err)
+		<-sw.putDone
+		_ = sw.ds.store.Delete(ctx, sw.filePath) // best-effort cleanup
+		return nil, fmt.Errorf("lode: failed to close compressor: %w", err)
+	}
+
+	// Close pipe writer (signals EOF to store.Put)
+	if err := sw.pipeWriter.Close(); err != nil {
+		<-sw.putDone
+		_ = sw.ds.store.Delete(ctx, sw.filePath) // best-effort cleanup
+		return nil, fmt.Errorf("lode: failed to close pipe: %w", err)
+	}
+
+	// Wait for store.Put to complete
+	if err := <-sw.putDone; err != nil {
+		_ = sw.ds.store.Delete(ctx, sw.filePath) // best-effort cleanup
+		return nil, fmt.Errorf("lode: failed to write data: %w", err)
+	}
+
+	// Build file reference with optional checksum
+	fileRef := FileRef{
+		Path:      sw.filePath,
+		SizeBytes: sw.countWriter.n,
+	}
+	if sw.hasher != nil {
+		fileRef.Checksum = sw.hasher.Sum()
+	}
+
+	// Build manifest
+	manifest := &Manifest{
+		SchemaName:       manifestSchemaName,
+		FormatVersion:    manifestFormatVersion,
+		DatasetID:        sw.ds.id,
+		SnapshotID:       sw.snapshotID,
+		CreatedAt:        time.Now().UTC(),
+		Metadata:         sw.metadata,
+		Files:            []FileRef{fileRef},
+		ParentSnapshotID: sw.parentID,
+		RowCount:         1,
+		Codec:            "",
+		Compressor:       sw.ds.compressor.Name(),
+		Partitioner:      sw.ds.layout.partitioner().name(),
+	}
+	if sw.ds.checksum != nil {
+		manifest.ChecksumAlgorithm = sw.ds.checksum.Name()
+	}
+
+	if err := sw.ds.writeManifests(ctx, sw.snapshotID, manifest, []string{""}); err != nil {
+		_ = sw.ds.store.Delete(ctx, sw.filePath) // best-effort cleanup
+		return nil, fmt.Errorf("lode: failed to write manifest: %w", err)
+	}
+
+	return &Snapshot{
+		ID:       sw.snapshotID,
+		Manifest: manifest,
+	}, nil
+}
+
+func (sw *streamWriter) Abort(ctx context.Context) error {
+	sw.mu.Lock()
+	if sw.committed {
+		sw.mu.Unlock()
+		return errors.New("lode: cannot abort committed stream")
+	}
+	if sw.aborted {
+		sw.mu.Unlock()
+		return nil // already aborted
+	}
+	sw.aborted = true
+	sw.mu.Unlock()
+
+	// Close pipe with error to cancel store.Put
+	_ = sw.pipeWriter.CloseWithError(errors.New("stream aborted"))
+	<-sw.putDone
+
+	// Best-effort cleanup of partial object
+	_ = sw.ds.store.Delete(ctx, sw.filePath)
+
+	return nil
+}
+
+func (sw *streamWriter) Close() error {
+	sw.mu.Lock()
+	if sw.closed {
+		sw.mu.Unlock()
+		return nil
+	}
+	sw.closed = true
+	alreadyCommitted := sw.committed
+	alreadyAborted := sw.aborted
+	sw.mu.Unlock()
+
+	if alreadyCommitted || alreadyAborted {
+		return nil
+	}
+
+	// Close without commit = abort
+	return sw.Abort(sw.ctx)
+}
+
+// countingWriter wraps an io.Writer and counts bytes written.
+type countingWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (cw *countingWriter) Write(p []byte) (n int, err error) {
+	n, err = cw.w.Write(p)
+	cw.n += int64(n)
+	return n, err
 }
