@@ -146,7 +146,9 @@ type hiveLayout struct {
 
 // NewHiveLayout creates a Hive (partition-first) layout with the specified partition keys.
 //
-// The keys parameter specifies which record fields to use for partitioning.
+// At least one partition key is required. For unpartitioned data, use NewDefaultLayout instead.
+//
+// The keys specify which record fields to use for partitioning.
 // Records must be map[string]any with the specified keys present.
 //
 // Example:
@@ -155,8 +157,7 @@ type hiveLayout struct {
 //	// Records will be partitioned by day=<value>/region=<value>
 func NewHiveLayout(keys ...string) layout {
 	if len(keys) == 0 {
-		// No partition keys = effectively noop, but use hive path structure
-		return &hiveLayout{part: newNoopPartitioner()}
+		panic("lode: NewHiveLayout requires at least one partition key; use NewDefaultLayout for unpartitioned data")
 	}
 	return &hiveLayout{part: newHivePartitioner(keys...)}
 }

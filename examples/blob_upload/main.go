@@ -42,11 +42,8 @@ func run() error {
 
 	fmt.Printf("Storage root: %s\n\n", tmpDir)
 
-	// Create filesystem-backed store using public API
-	store, err := lode.NewFS(tmpDir)
-	if err != nil {
-		return fmt.Errorf("failed to create store: %w", err)
-	}
+	// Create filesystem store factory
+	storeFactory := lode.NewFSFactory(tmpDir)
 
 	// -------------------------------------------------------------------------
 	// WRITE: Create dataset with default bundle and write raw blob
@@ -59,7 +56,10 @@ func run() error {
 	//   - Partitioner: NoOp
 	//   - Compressor: NoOp
 	//   - Codec: none (raw blob storage)
-	ds, err := lode.NewDataset("artifacts", store)
+	ds, err := lode.NewDataset(
+		"artifacts",
+		storeFactory,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create dataset: %w", err)
 	}

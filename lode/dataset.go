@@ -26,23 +26,30 @@ type datasetConfig struct {
 	codec      Codec
 }
 
-// DatasetOption configures dataset construction.
-type DatasetOption func(*datasetConfig)
+// Option configures dataset or reader construction.
+type Option func(any)
 
-// WithLayout sets the layout for the dataset.
+// WithLayout sets the layout for the dataset or reader.
 // Layout configures both path topology AND partitioning.
 // Default: NewDefaultLayout() (flat, no partitions).
-func WithLayout(l layout) DatasetOption {
-	return func(cfg *datasetConfig) {
-		cfg.layout = l
+func WithLayout(l layout) Option {
+	return func(cfg any) {
+		switch c := cfg.(type) {
+		case *datasetConfig:
+			c.layout = l
+		case *readerConfig:
+			c.layout = l
+		}
 	}
 }
 
 // WithCompressor sets the compressor for the dataset.
 // Default: NewNoOpCompressor().
-func WithCompressor(c Compressor) DatasetOption {
-	return func(cfg *datasetConfig) {
-		cfg.compressor = c
+func WithCompressor(c Compressor) Option {
+	return func(cfg any) {
+		if dc, ok := cfg.(*datasetConfig); ok {
+			dc.compressor = c
+		}
 	}
 }
 
@@ -52,9 +59,11 @@ func WithCompressor(c Compressor) DatasetOption {
 // When a codec is set, Write expects structured records that will be
 // serialized using the codec. When nil (default), Write expects a single
 // []byte element and stores it as a raw blob.
-func WithCodec(c Codec) DatasetOption {
-	return func(cfg *datasetConfig) {
-		cfg.codec = c
+func WithCodec(c Codec) Option {
+	return func(cfg any) {
+		if dc, ok := cfg.(*datasetConfig); ok {
+			dc.codec = c
+		}
 	}
 }
 
@@ -82,9 +91,17 @@ type dataset struct {
 //   - WithLayout(l) to use a different layout (configures both paths AND partitioning)
 //   - WithCompressor(c) to use compression
 //   - WithCodec(c) to use structured records with a codec
-func NewDataset(id DatasetID, store Store, opts ...DatasetOption) (Dataset, error) {
+func NewDataset(id DatasetID, factory StoreFactory, opts ...Option) (Dataset, error) {
+	if factory == nil {
+		return nil, errors.New("lode: store factory is required")
+	}
+
+	store, err := factory()
+	if err != nil {
+		return nil, fmt.Errorf("lode: store factory failed: %w", err)
+	}
 	if store == nil {
-		return nil, errors.New("lode: store is required")
+		return nil, errors.New("lode: store factory returned nil store")
 	}
 
 	cfg := &datasetConfig{
@@ -95,6 +112,17 @@ func NewDataset(id DatasetID, store Store, opts ...DatasetOption) (Dataset, erro
 
 	for _, opt := range opts {
 		opt(cfg)
+	}
+
+	if cfg.layout == nil {
+		return nil, errors.New("lode: layout must not be nil")
+	}
+	if cfg.compressor == nil {
+		return nil, errors.New("lode: compressor must not be nil")
+	}
+	// Raw blob mode (no codec) cannot use partitioning - there are no record fields to extract keys from
+	if cfg.codec == nil && !cfg.layout.partitioner().isNoop() {
+		return nil, errors.New("lode: raw blob mode (no codec) requires a layout with noop partitioner")
 	}
 
 	return &dataset{

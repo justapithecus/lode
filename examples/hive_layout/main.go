@@ -40,11 +40,8 @@ func run() error {
 
 	fmt.Printf("Storage root: %s\n\n", tmpDir)
 
-	// Create filesystem-backed store
-	store, err := lode.NewFS(tmpDir)
-	if err != nil {
-		return fmt.Errorf("failed to create store: %w", err)
-	}
+	// Create filesystem store factory
+	storeFactory := lode.NewFSFactory(tmpDir)
 
 	// -------------------------------------------------------------------------
 	// WRITE: Create dataset with Hive layout and partitioned data
@@ -55,7 +52,9 @@ func run() error {
 	// NewHiveLayout("day") configures BOTH:
 	//   - Hive (partition-first) path topology
 	//   - Hive partitioner that extracts "day" field from records
-	ds, err := lode.NewDataset("events", store,
+	ds, err := lode.NewDataset(
+		"events",
+		storeFactory,
 		lode.WithLayout(lode.NewHiveLayout("day")),
 		lode.WithCodec(lode.NewJSONLCodec()),
 	)
@@ -110,7 +109,13 @@ func run() error {
 	fmt.Println("=== LIST ===")
 
 	// Create reader with HiveLayout
-	reader := lode.NewReader(store, lode.WithReaderLayout(lode.NewHiveLayout("day")))
+	reader, err := lode.NewReader(
+		storeFactory,
+		lode.WithLayout(lode.NewHiveLayout("day")),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create reader: %w", err)
+	}
 
 	// List all datasets
 	datasets, err := reader.ListDatasets(ctx, lode.DatasetListOptions{})

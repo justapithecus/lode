@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -40,14 +41,21 @@ func run() error {
 
 	fmt.Printf("Storage root: %s\n\n", tmpDir)
 
-	// Create filesystem-backed store using public API
-	store, err := lode.NewFS(tmpDir)
+	// Create filesystem store factory
+	storeFactory := lode.NewFSFactory(tmpDir)
+
+	// For this demonstration, we need direct store access to write
+	// uncommitted data. Invoke the factory to get the store.
+	store, err := storeFactory()
 	if err != nil {
 		return fmt.Errorf("failed to create store: %w", err)
 	}
 
 	// Create reader with default layout
-	reader := lode.NewReader(store)
+	reader, err := lode.NewReader(storeFactory)
+	if err != nil {
+		return fmt.Errorf("failed to create reader: %w", err)
+	}
 
 	// -------------------------------------------------------------------------
 	// Step 1: Write data files WITHOUT manifests (uncommitted)
@@ -62,12 +70,15 @@ func run() error {
 	}
 	fmt.Printf("Wrote data file: %s\n", dataPath)
 
-	// Try to discover datasets - should find nothing
+	// Try to discover datasets - should get ErrNoManifests (objects exist but no manifests)
 	datasets, err := reader.ListDatasets(ctx, lode.DatasetListOptions{})
-	if err != nil {
+	if errors.Is(err, lode.ErrNoManifests) {
+		fmt.Printf("ListDatasets returned ErrNoManifests (expected: objects exist but no manifests)\n\n")
+	} else if err != nil {
 		return fmt.Errorf("failed to list datasets: %w", err)
+	} else {
+		fmt.Printf("Datasets discovered: %d (unexpected: should have returned ErrNoManifests)\n\n", len(datasets))
 	}
-	fmt.Printf("Datasets discovered: %d (expected: 0 - no manifest yet)\n\n", len(datasets))
 
 	// -------------------------------------------------------------------------
 	// Step 2: Write a manifest (commit signal)

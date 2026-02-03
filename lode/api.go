@@ -130,6 +130,9 @@ type Store interface {
 	Delete(ctx context.Context, path string) error
 }
 
+// StoreFactory creates a Store. Used for deferred store construction.
+type StoreFactory func() (Store, error)
+
 // -----------------------------------------------------------------------------
 // Codec interface
 // -----------------------------------------------------------------------------
@@ -211,6 +214,9 @@ var (
 
 	// ErrPathExists indicates an attempt to write to an existing path.
 	ErrPathExists = errPathExists{}
+
+	// ErrNoManifests indicates storage contains objects but no valid manifests.
+	ErrNoManifests = errNoManifests{}
 )
 
 type errNotFound struct{}
@@ -224,6 +230,10 @@ func (errNoSnapshots) Error() string { return "no snapshots" }
 type errPathExists struct{}
 
 func (errPathExists) Error() string { return "path exists" }
+
+type errNoManifests struct{}
+
+func (errNoManifests) Error() string { return "no manifests found (storage contains objects)" }
 
 // -----------------------------------------------------------------------------
 // Reader interface

@@ -113,15 +113,11 @@ These indicate invalid configuration at setup time.
 
 | Error | Source | Meaning |
 |-------|--------|---------|
-| Error | Reader/Dataset | Nil store factory provided |
-| Error | Reader/Dataset | Store factory returned error |
-| Error | Reader/Dataset | Store factory returned nil store |
+| Error | Reader/Dataset | Nil store provided |
 
 **Behavior**:
-- `NewReader(nil)` returns error.
+- `NewReader(nil)` panics.
 - `NewDataset(id, nil)` returns error.
-- `NewReader` returns error when the store factory fails or returns nil.
-- `NewDataset` returns error when the store factory fails or returns nil.
 
 ---
 

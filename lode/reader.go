@@ -18,17 +18,6 @@ type readerConfig struct {
 	layout layout
 }
 
-// ReaderOption configures reader construction.
-type ReaderOption func(*readerConfig)
-
-// WithReaderLayout sets the layout for the reader.
-// Default: NewDefaultLayout().
-func WithReaderLayout(l layout) ReaderOption {
-	return func(cfg *readerConfig) {
-		cfg.layout = l
-	}
-}
-
 // -----------------------------------------------------------------------------
 // Reader Implementation
 // -----------------------------------------------------------------------------
@@ -45,10 +34,18 @@ type reader struct {
 //   - Layout: NewDefaultLayout()
 //
 // Use option functions to override defaults:
-//   - WithReaderLayout(l) to use a different layout
-func NewReader(store Store, opts ...ReaderOption) Reader {
+//   - WithLayout(l) to use a different layout
+func NewReader(factory StoreFactory, opts ...Option) (Reader, error) {
+	if factory == nil {
+		return nil, errors.New("lode: store factory is required")
+	}
+
+	store, err := factory()
+	if err != nil {
+		return nil, fmt.Errorf("lode: store factory failed: %w", err)
+	}
 	if store == nil {
-		panic("lode: store is required")
+		return nil, errors.New("lode: store factory returned nil store")
 	}
 
 	cfg := &readerConfig{
@@ -59,10 +56,14 @@ func NewReader(store Store, opts ...ReaderOption) Reader {
 		opt(cfg)
 	}
 
+	if cfg.layout == nil {
+		return nil, errors.New("lode: layout must not be nil")
+	}
+
 	return &reader{
 		store:  store,
 		layout: cfg.layout,
-	}
+	}, nil
 }
 
 func (r *reader) ListDatasets(ctx context.Context, opts DatasetListOptions) ([]DatasetID, error) {
@@ -93,6 +94,11 @@ func (r *reader) ListDatasets(ctx context.Context, opts DatasetListOptions) ([]D
 		if opts.Limit > 0 && len(datasets) >= opts.Limit {
 			break
 		}
+	}
+
+	// Contract: empty list means storage truly empty, not "no manifests"
+	if len(datasets) == 0 && len(paths) > 0 {
+		return nil, ErrNoManifests
 	}
 
 	return datasets, nil

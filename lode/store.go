@@ -22,6 +22,14 @@ type fsStore struct {
 	root string
 }
 
+// NewFSFactory returns a StoreFactory that creates a filesystem-backed Store.
+// The directory must exist when the factory is invoked.
+func NewFSFactory(root string) StoreFactory {
+	return func() (Store, error) {
+		return NewFS(root)
+	}
+}
+
 // NewFS creates a filesystem-backed Store rooted at the given directory.
 // The directory must exist.
 //
@@ -193,6 +201,13 @@ func (f *fsStore) safePathForPrefix(path string) (string, error) {
 type memoryStore struct {
 	mu   sync.RWMutex
 	data map[string][]byte
+}
+
+// NewMemoryFactory returns a StoreFactory that creates an in-memory Store.
+func NewMemoryFactory() StoreFactory {
+	return func() (Store, error) {
+		return NewMemory(), nil
+	}
 }
 
 // NewMemory creates an in-memory Store.

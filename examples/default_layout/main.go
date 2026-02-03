@@ -37,11 +37,8 @@ func run() error {
 
 	fmt.Printf("Storage root: %s\n\n", tmpDir)
 
-	// Create filesystem-backed store
-	store, err := lode.NewFS(tmpDir)
-	if err != nil {
-		return fmt.Errorf("failed to create store: %w", err)
-	}
+	// Create filesystem store factory
+	storeFactory := lode.NewFSFactory(tmpDir)
 
 	// -------------------------------------------------------------------------
 	// WRITE: Create dataset and write data
@@ -53,7 +50,9 @@ func run() error {
 	//   - Layout: NewDefaultLayout() (flat, no partitions)
 	//   - Compressor: NewNoOpCompressor()
 	//   - Codec: none (we override with JSONL for structured records)
-	ds, err := lode.NewDataset("events", store,
+	ds, err := lode.NewDataset(
+		"events",
+		storeFactory,
 		lode.WithCodec(lode.NewJSONLCodec()),
 	)
 	if err != nil {
@@ -105,7 +104,10 @@ func run() error {
 	// -------------------------------------------------------------------------
 	fmt.Println("=== LIST ===")
 
-	reader := lode.NewReader(store)
+	reader, err := lode.NewReader(storeFactory)
+	if err != nil {
+		return fmt.Errorf("failed to create reader: %w", err)
+	}
 
 	// List all datasets
 	datasets, err := reader.ListDatasets(ctx, lode.DatasetListOptions{})
