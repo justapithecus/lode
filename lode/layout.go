@@ -158,7 +158,7 @@ type hiveLayout struct {
 //	// Records will be partitioned by day=<value>/region=<value>
 func NewHiveLayout(keys ...string) (layout, error) {
 	if len(keys) == 0 {
-		return nil, errors.New("lode: NewHiveLayout requires at least one partition key; use NewDefaultLayout for unpartitioned data")
+		return nil, errors.New("NewHiveLayout requires at least one partition key; use NewDefaultLayout for unpartitioned data")
 	}
 	return &hiveLayout{part: newHivePartitioner(keys...)}, nil
 }
