@@ -6,9 +6,9 @@
 // # Contract Compliance
 //
 // This adapter implements CONTRACT_STORAGE.md obligations:
-//   - Put: Immutability via existence check before write. Small objects use
-//     simple PutObject; large objects use multipart upload for true streaming
-//     without full buffering.
+//   - Put: Atomic immutability via If-None-Match for small objects (≤5MB).
+//     Large objects use multipart upload with best-effort existence check
+//     (TOCTOU window exists; single-writer semantics required per contract).
 //   - Get/Exists/Delete: Standard ErrNotFound semantics
 //   - List: Full pagination support, returns all matching keys
 //   - ReadRange: True range reads via HTTP Range header
@@ -32,6 +32,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -117,21 +118,15 @@ func New(client API, cfg Config) (*Store, error) {
 // Put writes data to the given path.
 // Returns ErrPathExists if the path already exists.
 // Returns ErrInvalidPath for empty or escaping paths.
+//
+// Atomicity note: Small objects (≤5MB) use If-None-Match for atomic immutability.
+// Large objects use multipart upload which does not support conditional writes;
+// a HeadObject check provides best-effort protection but has a TOCTOU window.
+// Per CONTRACT_WRITE_API.md, callers must ensure single-writer semantics.
 func (s *Store) Put(ctx context.Context, key string, r io.Reader) error {
 	fullKey, err := s.validateKey(key)
 	if err != nil {
 		return err
-	}
-
-	// Check if object already exists to enforce immutability.
-	// Note: This introduces a TOCTOU race, but S3 multipart upload does not
-	// support If-None-Match. For Lode's single-writer model this is acceptable.
-	exists, err := s.exists(ctx, fullKey)
-	if err != nil {
-		return fmt.Errorf("s3: checking existence: %w", err)
-	}
-	if exists {
-		return lode.ErrPathExists
 	}
 
 	// Read first chunk to determine if we can use simple PutObject
@@ -142,7 +137,7 @@ func (s *Store) Put(ctx context.Context, key string, r io.Reader) error {
 	}
 	firstChunk = firstChunk[:n]
 
-	// If data fits in single chunk, use simple PutObject (more efficient)
+	// If data fits in single chunk, use simple PutObject with atomic protection
 	if n <= maxSinglePutSize {
 		return s.putSimple(ctx, fullKey, firstChunk)
 	}
@@ -152,21 +147,44 @@ func (s *Store) Put(ctx context.Context, key string, r io.Reader) error {
 }
 
 // putSimple uploads small objects using a single PutObject call.
+// Uses If-None-Match for atomic immutability guarantee.
 func (s *Store) putSimple(ctx context.Context, fullKey string, data []byte) error {
 	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(s.bucket),
 		Key:           aws.String(fullKey),
 		Body:          bytes.NewReader(data),
 		ContentLength: aws.Int64(int64(len(data))),
+		IfNoneMatch:   aws.String("*"),
 	})
 	if err != nil {
+		// Check for PreconditionFailed (object already exists)
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) {
+			code := apiErr.ErrorCode()
+			if code == "PreconditionFailed" || code == "412" {
+				return lode.ErrPathExists
+			}
+		}
 		return fmt.Errorf("s3: put object: %w", err)
 	}
 	return nil
 }
 
 // putMultipart uploads large objects using S3 multipart upload for true streaming.
+// Note: S3 multipart upload does not support If-None-Match conditional writes.
+// We check existence before starting, but this has a TOCTOU window.
+// Per CONTRACT_WRITE_API.md, callers must ensure single-writer semantics.
 func (s *Store) putMultipart(ctx context.Context, fullKey string, firstChunk []byte, remaining io.Reader) error {
+	// Best-effort existence check before multipart upload.
+	// This is not atomic but provides protection under single-writer semantics.
+	exists, err := s.exists(ctx, fullKey)
+	if err != nil {
+		return fmt.Errorf("s3: checking existence: %w", err)
+	}
+	if exists {
+		return lode.ErrPathExists
+	}
+
 	// Create multipart upload
 	createResp, err := s.client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 		Bucket: aws.String(s.bucket),
@@ -180,9 +198,12 @@ func (s *Store) putMultipart(ctx context.Context, fullKey string, firstChunk []b
 	// Track completed parts for CompleteMultipartUpload
 	var completedParts []types.CompletedPart
 
-	// Helper to abort on error
+	// Helper to abort on error. Uses background context to ensure cleanup
+	// even if the original context was canceled.
 	abortUpload := func() {
-		_, _ = s.client.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
+		abortCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, _ = s.client.AbortMultipartUpload(abortCtx, &s3.AbortMultipartUploadInput{
 			Bucket:   aws.String(s.bucket),
 			Key:      aws.String(fullKey),
 			UploadId: aws.String(uploadID),
@@ -597,6 +618,13 @@ func (m *MockS3Client) PutObject(_ context.Context, params *s3.PutObjectInput, _
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// Handle If-None-Match: "*" (conditional write for immutability)
+	if aws.ToString(params.IfNoneMatch) == "*" {
+		if _, exists := m.objects[key]; exists {
+			return nil, &smithyAPIError{code: "PreconditionFailed", message: "object already exists"}
+		}
+	}
 
 	m.objects[key] = data
 	return &s3.PutObjectOutput{}, nil
