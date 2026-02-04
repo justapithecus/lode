@@ -472,13 +472,3 @@ ok  	github.com/justapithecus/lode/lode
 ok  	github.com/justapithecus/lode/lode/s3
 ```
 
----
-
-## Document History
-
-| Date | PR | Changes |
-|------|----|---------|
-| 2024-XX-XX | PR 1 | Initial matrix creation |
-| 2024-XX-XX | PR 2 | G2-1..G2-15 coverage complete |
-| 2024-XX-XX | PR 3 | G3-1..G3-4 coverage complete; streaming failure semantics hardened |
-| 2024-XX-XX | PR 2 | G2-1..G2-15 covered: manifest validation, constructor rejection, read mismatch, empty metadata |

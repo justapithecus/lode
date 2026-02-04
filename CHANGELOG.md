@@ -72,7 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **G3-4 (Residual Risk)**: Context cancellation cleanup behavior is nondeterministic due to
   timing characteristics of storage adapters. Deterministic abort paths are tested; context
-  cancellation semantics documented as best-effort. See `docs/CONTRACT_TEST_MATRIX.md` for details.
+  cancellation semantics documented as best-effort. See `docs/contracts/CONTRACT_TEST_MATRIX.md` for details.
 
 ### Upgrade Notes
 
@@ -82,7 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### References
 
 - [PUBLIC_API.md](PUBLIC_API.md) — Enhanced with option matrix and error guidance
-- [docs/CONTRACT_TEST_MATRIX.md](docs/CONTRACT_TEST_MATRIX.md) — Test coverage traceability
+- [docs/contracts/CONTRACT_TEST_MATRIX.md](docs/contracts/CONTRACT_TEST_MATRIX.md) — Test coverage traceability
 - [docs/contracts/](docs/contracts/) — Normative contract specifications
 
 ---
