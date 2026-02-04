@@ -111,6 +111,16 @@ These indicate storage-level failures.
   - offset+length overflow
 - `ReaderAt` returns `ErrRangeReadNotSupported` for stores without range capability.
 
+**ErrPathExists Detection by Put Path** (see CONTRACT_STORAGE.md):
+
+| Put Path | Detection Mechanism | Timing |
+|----------|---------------------|--------|
+| One-shot (≤ threshold) | Conditional write failure (e.g., `PreconditionFailed`) | Atomic at write time |
+| Multipart (> threshold) | Preflight existence check | Before upload starts |
+
+Note: The multipart path's preflight check has a TOCTOU window. Under concurrent
+writers without external coordination, a duplicate may not be detected.
+
 ---
 
 ### 5. Configuration Errors

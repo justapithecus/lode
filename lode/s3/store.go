@@ -6,9 +6,10 @@
 // # Contract Compliance
 //
 // This adapter implements CONTRACT_STORAGE.md obligations:
-//   - Put: Atomic immutability via If-None-Match for small objects (≤5MB).
-//     Large objects use multipart upload with best-effort existence check
-//     (TOCTOU window exists; single-writer semantics required per contract).
+//   - Put: Uses one-shot or multipart path based on payload size.
+//     One-shot (≤100MB): Atomic via If-None-Match conditional write.
+//     Multipart (>100MB): Best-effort via preflight existence check;
+//     TOCTOU window exists—single-writer or external coordination required.
 //   - Get/Exists/Delete: Standard ErrNotFound semantics
 //   - List: Full pagination support, returns all matching keys
 //   - ReadRange: True range reads via HTTP Range header
@@ -46,9 +47,12 @@ import (
 // S3 requires at least 5MB per part (except the last part).
 const multipartPartSize = 5 * 1024 * 1024 // 5MB
 
-// maxSinglePutSize is the maximum size for a single PutObject operation.
-// Objects larger than this use multipart upload for true streaming.
-const maxSinglePutSize = 5 * 1024 * 1024 // 5MB
+// maxSinglePutSize is the threshold for one-shot vs multipart Put routing.
+// Objects ≤ this size use PutObject with If-None-Match (atomic no-overwrite).
+// Objects > this size use multipart upload (best-effort no-overwrite via preflight check).
+// Set to 100MB as a practical balance: most artifacts fit in one-shot path while
+// allowing true streaming for larger payloads. S3 PutObject supports up to 5GB.
+const maxSinglePutSize = 100 * 1024 * 1024 // 100MB
 
 // maxReadRangeLength is the maximum length for ReadRange to prevent overflow
 // when converting int64 to int on 32-bit platforms.
@@ -119,17 +123,22 @@ func New(client API, cfg Config) (*Store, error) {
 // Returns ErrPathExists if the path already exists.
 // Returns ErrInvalidPath for empty or escaping paths.
 //
-// Atomicity note: Small objects (≤5MB) use If-None-Match for atomic immutability.
-// Large objects use multipart upload which does not support conditional writes;
-// a HeadObject check provides best-effort protection but has a TOCTOU window.
-// Per CONTRACT_WRITE_API.md, callers must ensure single-writer semantics.
+// # Routing and Atomicity (per CONTRACT_STORAGE.md)
+//
+// One-shot path (≤100MB): Uses PutObject with If-None-Match for atomic
+// no-overwrite protection. Duplicate writes return ErrPathExists.
+//
+// Multipart path (>100MB): Uses preflight HeadObject check then multipart
+// upload. Provides best-effort no-overwrite protection with a TOCTOU window.
+// Single-writer or external coordination is required for guaranteed
+// no-overwrite semantics on this path.
 func (s *Store) Put(ctx context.Context, key string, r io.Reader) error {
 	fullKey, err := s.validateKey(key)
 	if err != nil {
 		return err
 	}
 
-	// Read first chunk to determine if we can use simple PutObject
+	// Read first chunk to determine routing: one-shot vs multipart
 	firstChunk := make([]byte, maxSinglePutSize+1)
 	n, err := io.ReadFull(r, firstChunk)
 	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
@@ -137,17 +146,18 @@ func (s *Store) Put(ctx context.Context, key string, r io.Reader) error {
 	}
 	firstChunk = firstChunk[:n]
 
-	// If data fits in single chunk, use simple PutObject with atomic protection
+	// One-shot path: atomic via If-None-Match
 	if n <= maxSinglePutSize {
 		return s.putSimple(ctx, fullKey, firstChunk)
 	}
 
-	// Data exceeds threshold: use multipart upload for true streaming
+	// Multipart path: best-effort via preflight check
 	return s.putMultipart(ctx, fullKey, firstChunk, r)
 }
 
-// putSimple uploads small objects using a single PutObject call.
-// Uses If-None-Match for atomic immutability guarantee.
+// putSimple implements the one-shot Put path for objects ≤ maxSinglePutSize.
+// Uses If-None-Match: "*" for atomic no-overwrite protection.
+// Returns ErrPathExists if the object already exists.
 func (s *Store) putSimple(ctx context.Context, fullKey string, data []byte) error {
 	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(s.bucket),
@@ -170,13 +180,17 @@ func (s *Store) putSimple(ctx context.Context, fullKey string, data []byte) erro
 	return nil
 }
 
-// putMultipart uploads large objects using S3 multipart upload for true streaming.
-// Note: S3 multipart upload does not support If-None-Match conditional writes.
-// We check existence before starting, but this has a TOCTOU window.
-// Per CONTRACT_WRITE_API.md, callers must ensure single-writer semantics.
+// putMultipart implements the multipart Put path for objects > maxSinglePutSize.
+// Enables true streaming without full buffering.
+//
+// S3 multipart upload does not support conditional completion, so this path
+// uses a preflight existence check. This provides best-effort no-overwrite
+// protection with a TOCTOU window between check and completion.
+//
+// Per CONTRACT_STORAGE.md: single-writer or external coordination is required
+// to guarantee no-overwrite semantics on this path.
 func (s *Store) putMultipart(ctx context.Context, fullKey string, firstChunk []byte, remaining io.Reader) error {
-	// Best-effort existence check before multipart upload.
-	// This is not atomic but provides protection under single-writer semantics.
+	// Preflight existence check (best-effort; TOCTOU window exists).
 	exists, err := s.exists(ctx, fullKey)
 	if err != nil {
 		return fmt.Errorf("s3: checking existence: %w", err)
