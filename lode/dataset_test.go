@@ -745,6 +745,40 @@ func TestDataset_StreamWriteRecords_NilMetadata_ReturnsError(t *testing.T) {
 	}
 }
 
+func TestDataset_StreamWriteRecords_NilIterator_ReturnsError(t *testing.T) {
+	ds, err := NewDataset("test-ds", NewMemoryFactory(), WithCodec(NewJSONLCodec()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = ds.StreamWriteRecords(t.Context(), Metadata{}, nil)
+	if err == nil {
+		t.Fatal("expected error for nil iterator, got nil")
+	}
+	if !errors.Is(err, ErrNilIterator) {
+		t.Errorf("expected ErrNilIterator, got: %v", err)
+	}
+}
+
+func TestDataset_StreamWriteRecords_WithPartitioner_ReturnsError(t *testing.T) {
+	// StreamWriteRecords cannot partition since it's single-pass streaming
+	ds, err := NewDataset("test-ds", NewMemoryFactory(),
+		WithCodec(NewJSONLCodec()),
+		WithHiveLayout("day"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	iter := &sliceIterator{records: []any{D{"id": "1", "day": "2024-01-01"}}}
+	_, err = ds.StreamWriteRecords(t.Context(), Metadata{}, iter)
+	if err == nil {
+		t.Fatal("expected error for partitioning, got nil")
+	}
+	if !errors.Is(err, ErrPartitioningNotSupported) {
+		t.Errorf("expected ErrPartitioningNotSupported, got: %v", err)
+	}
+}
+
 func TestDataset_StreamWriteRecords_TimestampedRecords_ComputesMinMax(t *testing.T) {
 	ds, err := NewDataset("test-ds", NewMemoryFactory(), WithCodec(NewJSONLCodec()))
 	if err != nil {

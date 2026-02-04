@@ -515,12 +515,20 @@ func (d *dataset) StreamWriteRecords(ctx context.Context, metadata Metadata, rec
 	if metadata == nil {
 		return nil, errors.New("lode: metadata must be non-nil (use empty map {} for no metadata)")
 	}
+	if records == nil {
+		return nil, ErrNilIterator
+	}
 	if d.codec == nil {
 		return nil, errors.New("lode: StreamWriteRecords requires a codec")
 	}
 	streamCodec, ok := d.codec.(StreamingRecordCodec)
 	if !ok {
 		return nil, ErrCodecNotStreamable
+	}
+	// StreamWriteRecords writes to a single file and cannot partition records
+	// since that would require buffering to determine partition keys
+	if !d.layout.partitioner().isNoop() {
+		return nil, ErrPartitioningNotSupported
 	}
 
 	// Determine parent snapshot
@@ -980,6 +988,10 @@ type streamWriter struct {
 	aborted   bool
 	closed    bool
 	writeErr  error
+
+	// putDrainOnce ensures exactly one consumer drains putDone
+	putDrainOnce sync.Once
+	putErr       error // cached error from putDone
 }
 
 func (sw *streamWriter) Write(p []byte) (n int, err error) {
@@ -1003,6 +1015,15 @@ func (sw *streamWriter) Write(p []byte) (n int, err error) {
 	return n, err
 }
 
+// drainPutDone ensures exactly one consumer receives from putDone.
+// Safe to call from multiple goroutines; subsequent calls return cached result.
+func (sw *streamWriter) drainPutDone() error {
+	sw.putDrainOnce.Do(func() {
+		sw.putErr = <-sw.putDone
+	})
+	return sw.putErr
+}
+
 func (sw *streamWriter) Commit(ctx context.Context) (*Snapshot, error) {
 	sw.mu.Lock()
 	if sw.committed {
@@ -1013,26 +1034,27 @@ func (sw *streamWriter) Commit(ctx context.Context) (*Snapshot, error) {
 		sw.mu.Unlock()
 		return nil, errors.New("lode: stream is closed")
 	}
-	sw.committed = true
+	// Mark as closed to prevent concurrent commits, but not committed until success
+	sw.closed = true
 	sw.mu.Unlock()
 
 	// Close compression writer (flushes final data)
 	if err := sw.compWriter.Close(); err != nil {
 		_ = sw.pipeWriter.CloseWithError(err)
-		<-sw.putDone
-		_ = sw.ds.store.Delete(ctx, sw.filePath) // best-effort cleanup
+		_ = sw.drainPutDone() // drain for cleanup; error irrelevant
+		_ = sw.ds.store.Delete(ctx, sw.filePath)
 		return nil, fmt.Errorf("lode: failed to close compressor: %w", err)
 	}
 
 	// Close pipe writer (signals EOF to store.Put)
 	if err := sw.pipeWriter.Close(); err != nil {
-		<-sw.putDone
-		_ = sw.ds.store.Delete(ctx, sw.filePath) // best-effort cleanup
+		_ = sw.drainPutDone() // drain for cleanup; error irrelevant
+		_ = sw.ds.store.Delete(ctx, sw.filePath)
 		return nil, fmt.Errorf("lode: failed to close pipe: %w", err)
 	}
 
 	// Wait for store.Put to complete
-	if err := <-sw.putDone; err != nil {
+	if err := sw.drainPutDone(); err != nil {
 		_ = sw.ds.store.Delete(ctx, sw.filePath) // best-effort cleanup
 		return nil, fmt.Errorf("lode: failed to write data: %w", err)
 	}
@@ -1070,6 +1092,11 @@ func (sw *streamWriter) Commit(ctx context.Context) (*Snapshot, error) {
 		return nil, fmt.Errorf("lode: failed to write manifest: %w", err)
 	}
 
+	// Mark committed only after full success
+	sw.mu.Lock()
+	sw.committed = true
+	sw.mu.Unlock()
+
 	return &Snapshot{
 		ID:       sw.snapshotID,
 		Manifest: manifest,
@@ -1091,7 +1118,9 @@ func (sw *streamWriter) Abort(ctx context.Context) error {
 
 	// Close pipe with error to cancel store.Put
 	_ = sw.pipeWriter.CloseWithError(errors.New("stream aborted"))
-	<-sw.putDone
+
+	// Wait for store.Put to complete (safe: drainPutDone uses sync.Once)
+	_ = sw.drainPutDone() // error irrelevant during abort
 
 	// Best-effort cleanup of partial object
 	_ = sw.ds.store.Delete(ctx, sw.filePath)
