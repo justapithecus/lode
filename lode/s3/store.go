@@ -621,10 +621,10 @@ type MockS3Client struct {
 	CreateMultipartUploadCalls int
 	AbortMultipartUploadCalls  int
 
-	// UploadPartFailAfter causes UploadPart to fail after N successful calls.
-	// Set to 0 to disable (default). Set to 1 to fail on first part, etc.
-	UploadPartFailAfter int
-	uploadPartCalls     int
+	// UploadPartFailOnCall causes UploadPart to fail on the Nth call.
+	// Set to 0 to disable (default). Set to 1 to fail on first part, 2 for second, etc.
+	UploadPartFailOnCall int
+	uploadPartCalls      int
 }
 
 // NewMockS3Client creates a new mock S3 client for testing.
@@ -751,9 +751,9 @@ func (m *MockS3Client) UploadPart(_ context.Context, params *s3.UploadPartInput,
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Simulate failure after N successful uploads (for testing abort path)
+	// Simulate failure on Nth call (for testing abort path)
 	m.uploadPartCalls++
-	if m.UploadPartFailAfter > 0 && m.uploadPartCalls > m.UploadPartFailAfter {
+	if m.UploadPartFailOnCall > 0 && m.uploadPartCalls >= m.UploadPartFailOnCall {
 		return nil, &smithyAPIError{code: "InternalError", message: "simulated upload part failure"}
 	}
 

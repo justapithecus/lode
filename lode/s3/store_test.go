@@ -320,8 +320,8 @@ func TestStore_Put_Multipart_FailureTriggersAbort(t *testing.T) {
 	mock := NewMockS3Client()
 	store, _ := New(mock, Config{Bucket: "test"})
 
-	// Configure mock to fail after first part upload
-	mock.UploadPartFailAfter = 1
+	// Configure mock to fail on second part upload (first part succeeds, then fails)
+	mock.UploadPartFailOnCall = 2
 
 	// Create data that requires multiple parts (threshold + 10MB to ensure multiple chunks)
 	size := maxSinglePutSize + (10 * 1024 * 1024)
