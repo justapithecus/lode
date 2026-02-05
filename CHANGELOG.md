@@ -148,7 +148,6 @@ Post-v0.3.0 improvements planned:
 ### Known Limitations
 
 - Single-writer semantics required (no concurrent writer conflict resolution)
-- Large uploads (>5GB on S3) have TOCTOU window for no-overwrite guarantee
 - Cleanup of partial objects is best-effort, not guaranteed
 
 ### Upgrade Notes
