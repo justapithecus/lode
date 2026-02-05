@@ -249,5 +249,7 @@ func newFaultStoreFactory(fs *faultStore) StoreFactory {
 
 // --- Sentinel errors for injection ---
 
-var errInjectedPut = errors.New("injected: put error")
-var errInjectedDelete = errors.New("injected: delete error")
+var (
+	errInjectedPut    = errors.New("injected: put error")
+	errInjectedDelete = errors.New("injected: delete error")
+)
