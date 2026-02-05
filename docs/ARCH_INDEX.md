@@ -29,6 +29,7 @@ Do not update for internal refactors.
 Plans, contracts, and research notes. Contracts define **system behavior**.
 
 - `IMPLEMENTATION_PLAN.md` — contract-first, phased implementation plan
+- `VOLUME_DIRECTION.md` — product direction for future Dataset + Volume dual-paradigm model
 - `contracts/CONTRACT_CORE.md` — core model invariants and immutability
 - `contracts/CONTRACT_WRITE_API.md` — write API semantics and errors
 - `contracts/CONTRACT_STORAGE.md` — storage adapter obligations
