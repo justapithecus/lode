@@ -93,6 +93,11 @@ Gaps are tracked with codes indicating category and priority:
 | Close without Commit → abort | `TestDataset_StreamWrite_CloseWithoutCommit_BehavesAsAbort` |
 | Codec configured → error | `TestDataset_StreamWrite_WithCodec_ReturnsError` |
 | Checksum computed | `TestDataset_StreamWrite_WithChecksum_RecordsChecksum` |
+| Manifest Put error → no manifest + cleanup | `TestStreamWrite_ManifestPutError_NoManifest_CleanupAttempted` |
+| Abort → cleanup attempted | `TestStreamWrite_Abort_NoManifest_CleanupAttempted` |
+| Close → cleanup attempted | `TestStreamWrite_CloseWithoutCommit_NoManifest_CleanupAttempted` |
+| Cleanup errors ignored | `TestStreamWrite_CleanupErrorIgnored` |
+| Blocked Put + cancel → no manifest | `TestStreamWrite_BlockedPut_ContextCancel_NoManifest` |
 
 **StreamWriteRecords**: All covered ✅
 
@@ -104,6 +109,8 @@ Gaps are tracked with codes indicating category and priority:
 | Partitioning error | `TestDataset_StreamWriteRecords_WithPartitioner_ReturnsError` |
 | Iterator error → no manifest | `TestDataset_StreamWriteRecords_IteratorError` |
 | RowCount = records consumed | `TestDataset_StreamWriteRecords_Success` |
+| Iterator error → cleanup attempted | `TestStreamWriteRecords_IteratorError_NoManifest_CleanupAttempted` |
+| Manifest Put error → no manifest + cleanup | `TestStreamWriteRecords_ManifestPutError_NoManifest` |
 
 **Timestamp Computation**: All covered ✅
 
@@ -220,17 +227,41 @@ All error sentinels covered ✅
 
 ## Open Gaps
 
-### Residual Risk: STORE-CTX-CANCEL
+### G3-4: Streaming Failure Semantics
 
-**Context cancellation cleanup is nondeterministic.**
+The following invariants are now **deterministically tested** via fault injection:
 
-- In-memory stores complete `Put` before cancellation takes effect
-- Real storage adapters have varying timing characteristics
-- No deterministic assertion possible
+| Invariant | Coverage |
+|-----------|----------|
+| No manifest on failed stream | ✅ All failure paths |
+| Cleanup (Delete) attempted on failure | ✅ All failure paths |
+| Cleanup errors ignored (best-effort) | ✅ Explicit test |
+| Snapshot invisibility preserved | ✅ All failure paths |
 
-**Mitigation**: Deterministic abort paths (`Abort()`, `Close()`, iterator errors) are fully tested. See RISK NOTE in `dataset_test.go`.
+**Deterministic test infrastructure**: `lode/store_fault_test.go` provides a fault-injection
+store wrapper with error injection, call observation, and blocking for synchronization.
 
-**Status**: Accepted as residual risk. Cleanup is documented as best-effort per CONTRACT_ERRORS.md.
+### Residual Risk: STORE-CTX-CANCEL (Narrowed)
+
+**Context cancellation cleanup timing is adapter-dependent.**
+
+| Aspect | Status |
+|--------|--------|
+| Core invariant: no manifest on cancel | ✅ Deterministically tested with blocked Put |
+| Cleanup attempt on cancel | ✅ Deterministically tested with blocked Put |
+| Actual cleanup completion | ⚠️ Timing-dependent (adapter-specific) |
+
+**Why timing matters:**
+- In-memory stores complete synchronously before cancellation takes effect
+- Real adapters (S3, FS) have varying timing windows
+- Whether cleanup Delete runs before or after context deadline is nondeterministic
+
+**Mitigation:**
+- Core invariants are tested deterministically via `TestStreamWrite_BlockedPut_ContextCancel_NoManifest`
+- Adapter-specific timing tests belong in integration test suites (PR 20)
+- Cleanup is documented as best-effort per CONTRACT_ERRORS.md
+
+**Status**: Core invariants covered. Adapter timing remains as narrowly-scoped residual risk.
 
 ---
 
