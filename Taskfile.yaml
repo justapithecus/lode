@@ -34,6 +34,7 @@ tasks:
       - go run ./examples/hive_layout
       - go run ./examples/blob_upload
       - go run ./examples/manifest_driven
+      - go run ./examples/stream_write_records
 
   snippets:
     desc: Verify runnable markdown snippets
