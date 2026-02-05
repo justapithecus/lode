@@ -255,9 +255,9 @@ Any change that affects contract behavior must:
 
 ### Priority Track A — Storage Safety Hardening
 
-- [ ] Evaluate and adopt stronger S3 conditional-write guarantees for multipart paths
-- [ ] Update storage contract/docs with backend-specific guarantee notes where needed
-- [ ] Add integration coverage for large-upload overwrite prevention paths
+- [x] Evaluate and adopt stronger S3 conditional-write guarantees for multipart paths
+- [x] Update storage contract/docs with backend-specific guarantee notes where needed
+- [x] Add integration coverage for large-upload overwrite prevention paths
 
 ### Priority Track B — Format and Ecosystem
 
@@ -270,3 +270,43 @@ Any change that affects contract behavior must:
 - [ ] Design reference-based path for GRIB2/NetCDF-to-Zarr workflows within Lode boundaries
 - [ ] Define docs/examples for chunk/region safety expectations
 - [ ] Evaluate native Zarr encoding path after reference-based workflow is validated
+
+---
+
+## Phase 6 — Dual Persistence Paradigms (v0.6+)
+
+### Goal
+Introduce a second first-class persistence paradigm, `Volume`, alongside `Dataset`,
+without blurring Lode's scope boundary.
+
+### Framing Principle
+
+**Dataset streaming builds complete objects before committing truth; Volume streaming commits truth incrementally.**
+
+### Product Direction
+
+- `Dataset` remains complete, structured, object-centric persistence
+- `Volume` adds sparse, resumable, range-addressable byte-space persistence
+- Both abstractions are coequal and explicit; neither is implemented as a special case of the other
+- Runtime concerns (torrent peers, scheduling, networking, execution policy) remain outside Lode
+
+### Phase-0 Volume Deliverables
+
+- [ ] Public `Volume` abstraction and constructor shape documented
+- [ ] Volume snapshot manifest model documented (`volume_id`, `total_length`, committed segments)
+- [ ] Explicit range-read semantics documented (missing ranges are errors, no zero-fill inference)
+- [ ] Filesystem and memory validation examples for sparse/resumable flows
+- [ ] Restart/resume correctness tests for committed segments
+
+### Dataset Streaming Boundary (Retained)
+
+- [ ] Clarify in docs and API guidance that Dataset streaming is atomic object construction
+- [ ] Preserve guarantee: object is either fully committed in snapshot or absent
+- [ ] Explicitly route sparse/resumable/range-verified workflows to Volume
+
+### Phase-0 Exclusions
+
+- [ ] No torrent protocol concepts (pieces, peers, trackers)
+- [ ] No networking, scheduling, or runtime orchestration
+- [ ] No hash policy ownership in Lode core
+- [ ] No deployables/daemons added to Lode
