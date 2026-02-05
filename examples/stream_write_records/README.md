@@ -25,6 +25,33 @@ Do NOT use `StreamWriteRecords` when:
 - Your codec doesn't support streaming
 - Data is already in memory (use `Write` instead)
 
+## Failure Modes
+
+`StreamWriteRecords` validates configuration and input before streaming begins.
+Use `errors.Is()` to check for specific failures:
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `ErrNilIterator` | Passed `nil` as iterator | Provide a valid `RecordIterator` |
+| `ErrCodecNotStreamable` | Codec doesn't support streaming | Use a streaming codec (e.g., JSONL) or use `Write` |
+| `ErrPartitioningNotSupported` | Dataset has partitioning configured | Use `Write` for partitioned data |
+| `metadata is nil` | Passed `nil` metadata | Use `lode.Metadata{}` for empty metadata |
+
+### Iterator Errors
+
+If `iterator.Err()` returns non-nil during streaming:
+- Streaming stops immediately
+- No manifest is written (no snapshot created)
+- Partial data may remain in storage (best-effort cleanup)
+
+### Abort Semantics
+
+`StreamWriteRecords` is atomic: either all records are written and the manifest
+is created, or nothing is committed. There is no explicit `Abort()` — errors
+during iteration implicitly abort.
+
+*Contract references: [`CONTRACT_ERRORS.md`](../../docs/contracts/CONTRACT_ERRORS.md), [`CONTRACT_WRITE_API.md`](../../docs/contracts/CONTRACT_WRITE_API.md)*
+
 ## RecordIterator Interface
 
 ```go
