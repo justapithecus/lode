@@ -15,11 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- N/A
+- **S3 Backend Compatibility Matrix**: Added documentation for conditional multipart completion support across S3-compatible backends; verified on AWS S3, untested on MinIO/LocalStack/R2
 
 ### Fixed
 
 - **S3 Multipart Atomic No-Overwrite**: Large uploads (>5GB) now use conditional completion (`If-None-Match` on `CompleteMultipartUpload`) for atomic no-overwrite guarantee, closing the TOCTOU window that existed in v0.2.0
+
+### Known Limitations
+
+- **S3-compatible backend caveat**: Atomic no-overwrite for large uploads (>5GB) is verified on AWS S3; assumed but untested for other S3-compatible backends (MinIO, LocalStack, R2). If your backend does not support `If-None-Match` on `CompleteMultipartUpload`, large uploads may fail or lose atomicity. See `lode/s3` package docs for the backend support matrix.
 
 ### Breaking Changes
 

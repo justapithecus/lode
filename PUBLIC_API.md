@@ -341,7 +341,7 @@ External coordination (locks, queues, leader election) is the caller's responsib
 ### Large Upload Guarantees
 
 For uploads exceeding the storage adapter's atomic threshold (e.g., 5GB for S3),
-the S3 adapter now uses conditional completion (`If-None-Match` on `CompleteMultipartUpload`)
+the S3 adapter uses conditional completion (`If-None-Match` on `CompleteMultipartUpload`)
 to provide the same atomic no-overwrite guarantee as small uploads.
 
 Both upload paths now provide atomic no-overwrite guarantees:
@@ -350,6 +350,22 @@ Both upload paths now provide atomic no-overwrite guarantees:
 
 Preflight existence checks are retained as a fail-fast optimization to avoid
 uploading parts for objects that already exist.
+
+**Backend Compatibility Caveat:**
+
+The atomic guarantee for large uploads (>5GB) depends on backend support for
+`If-None-Match` on `CompleteMultipartUpload`. This has been verified on AWS S3
+but is assumed (untested) for other S3-compatible backends:
+
+| Backend | Conditional Multipart | Status |
+|---------|----------------------|--------|
+| AWS S3 | Supported | ✅ Verified |
+| MinIO | Unknown | ⚠️ Untested |
+| LocalStack | Unknown | ⚠️ Untested |
+| Cloudflare R2 | Unknown | ⚠️ Untested |
+
+If using an untested backend with large uploads: either verify support experimentally,
+or ensure single-writer semantics at the application level.
 
 *Contract reference: [`CONTRACT_STORAGE.md`](docs/contracts/CONTRACT_STORAGE.md) §Put Upload Paths, [`CONTRACT_WRITE_API.md`](docs/contracts/CONTRACT_WRITE_API.md) §Storage-Level Concurrency*
 

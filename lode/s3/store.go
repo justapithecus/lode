@@ -1,7 +1,6 @@
 // Package s3 provides an S3-compatible storage adapter for Lode.
 //
-// This adapter supports AWS S3, MinIO, LocalStack, Cloudflare R2,
-// and other S3-compatible object stores.
+// This adapter targets AWS S3 and S3-compatible object stores.
 //
 // # Contract Compliance
 //
@@ -21,6 +20,23 @@
 //   - Atomic path threshold: 5GB (S3 PutObject limit)
 //   - Maximum object size: 5TB (S3 multipart limit)
 //   - Part size: 5MB minimum, adaptive for objects >50GB to stay under 10,000 parts
+//
+// # Backend Compatibility for Conditional Multipart Completion
+//
+// The multipart path (>5GB) uses If-None-Match on CompleteMultipartUpload for
+// atomic no-overwrite guarantees. This feature requires backend support:
+//
+//	| Backend       | Conditional Completion | Status      |
+//	|---------------|------------------------|-------------|
+//	| AWS S3        | Supported              | ✅ Verified  |
+//	| MinIO         | Unknown                | ⚠️ Untested  |
+//	| LocalStack    | Unknown                | ⚠️ Untested  |
+//	| Cloudflare R2 | Unknown                | ⚠️ Untested  |
+//
+// For untested backends: if the backend does not support If-None-Match on
+// CompleteMultipartUpload, large uploads (>5GB) may fail with unexpected errors.
+// Test with large uploads before relying on this path in production, or ensure
+// single-writer semantics at the application level.
 //
 // # Consistency
 //
@@ -310,7 +326,10 @@ func (s *Store) putMultipartFromFile(ctx context.Context, fullKey string, file i
 		offset += thisPartSize
 	}
 
-	// Complete multipart upload with conditional no-overwrite (If-None-Match)
+	// Complete multipart upload with conditional no-overwrite (If-None-Match).
+	// ASSUMPTION: Backend supports If-None-Match on CompleteMultipartUpload.
+	// Verified on AWS S3; untested on other S3-compatible backends (MinIO, LocalStack, R2).
+	// See package doc "Backend Compatibility for Conditional Multipart Completion" for details.
 	_, err = s.client.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{
 		Bucket:   aws.String(s.bucket),
 		Key:      aws.String(fullKey),
