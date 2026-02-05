@@ -107,8 +107,7 @@ includes a curated set of components:
 **Compressors:**
 - `NewNoOpCompressor()` - No compression (default)
 - `NewGzipCompressor()` - Gzip compression
-
-*Planned: `NewZstdCompressor()` for higher compression ratio and faster decompression.*
+- `NewZstdCompressor()` - Zstd compression (higher ratio, faster decompression)
 
 **Codecs:**
 - `NewJSONLCodec()` - JSON Lines format
@@ -261,7 +260,7 @@ Common errors when using streaming APIs:
 |------------|----------|------------|
 | `NewNoOpCompressor()` | Data is already compressed, or compression overhead not justified | No CPU cost; no size reduction |
 | `NewGzipCompressor()` | Broad compatibility required (gzip is universal) | Good ratio; moderate speed |
-| `NewZstdCompressor()` *(planned)* | Best compression ratio or fast decompression needed | Better ratio than gzip; faster decompression |
+| `NewZstdCompressor()` | Best compression ratio or fast decompression needed | Better ratio than gzip; faster decompression |
 
 **Notes:**
 - Compressor choice is recorded in manifests; readers must support the compressor used

@@ -11,11 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- N/A
+- **Zstd Compressor**: `NewZstdCompressor()` for higher compression ratio and faster decompression than gzip
 
 ### Changed
 
-- **Zstd Compressor Docs Prep**: Selection guidance and planned API documented (implementation in next PR)
+- N/A
 
 ### Fixed
 
