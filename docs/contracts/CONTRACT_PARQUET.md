@@ -71,16 +71,29 @@ Parquet requires a schema. Lode Parquet codec MUST support explicit schema confi
 Schemas are defined at codec construction time:
 
 ```go
-codec := lode.NewParquetCodec(lode.ParquetSchema{
+codec, err := lode.NewParquetCodec(lode.ParquetSchema{
     Fields: []lode.ParquetField{
         {Name: "id", Type: lode.ParquetInt64},
         {Name: "name", Type: lode.ParquetString},
         {Name: "timestamp", Type: lode.ParquetTimestamp},
     },
 })
+if err != nil {
+    // Handle schema validation error
+}
 ```
 
-### Schema Validation
+### Schema Construction Validation
+
+`NewParquetCodec` validates the schema and returns an error for:
+
+- Invalid `ParquetType` values (out of range).
+- Empty field names.
+- Duplicate field names (would silently drop columns).
+
+All schema validation errors wrap `ErrSchemaViolation`.
+
+### Record Validation
 
 - Records MUST contain all required (non-nullable) fields defined in the schema.
 - **Extra fields**: Fields in records that are not in the schema MUST be silently ignored.
@@ -128,6 +141,20 @@ The codec performs **explicit, documented type coercions** to support common pat
 These coercions are **not inference**—the schema still determines the output type.
 Coercion only affects which input types are accepted.
 
+### Numeric Overflow Protection
+
+When coercing `float64` to integer types, the codec validates:
+
+- **Truncation check**: `float64` values MUST be whole numbers (`math.Trunc(v) == v`).
+  Non-integer values return `ErrSchemaViolation`.
+- **Int32 range check**: Values MUST be within `[-2147483648, 2147483647]`.
+  Out-of-range values return `ErrSchemaViolation`.
+- **Int64 safe range check**: For `float64` → `int64`, values MUST be within
+  `[-2^53, 2^53]` (the range where `float64` can represent integers exactly).
+  Values outside this range return `ErrSchemaViolation`.
+
+These checks prevent silent data corruption from numeric overflow or precision loss.
+
 ### Nullable Fields
 
 - Fields MAY be marked as nullable in the schema.
@@ -164,20 +191,10 @@ Row groups affect read performance and memory usage.
 
 ### Defaults
 
-- Default row group size: 128 MB (compressed) or implementation-defined.
+- Row group size is implementation-defined (typically library default).
 - Single row group is acceptable for small datasets.
 
-### Optional Configuration
-
-Implementations MAY expose row group configuration:
-
-```go
-codec := lode.NewParquetCodec(schema,
-    lode.WithRowGroupSize(64 * 1024 * 1024), // 64 MB
-)
-```
-
-Row group configuration is optional and implementation-defined.
+Row group configuration is an implementation detail and not exposed in the public API.
 
 ---
 
@@ -256,6 +273,9 @@ var ErrInvalidFormat = errInvalidFormat{}
 | Type mismatch after coercion | `ErrSchemaViolation`            |
 | Nil value for non-nullable   | `ErrSchemaViolation`            |
 | Invalid timestamp string     | `ErrSchemaViolation`            |
+| Float64 with fractional part | `ErrSchemaViolation`            |
+| Int32 overflow               | `ErrSchemaViolation`            |
+| Int64 safe range exceeded    | `ErrSchemaViolation`            |
 | Write failure                | Underlying io error             |
 
 ### Decoding Errors
@@ -264,7 +284,11 @@ var ErrInvalidFormat = errInvalidFormat{}
 |------------------------------|---------------------------------|
 | Invalid Parquet file         | `ErrInvalidFormat`              |
 | Corrupted data               | `ErrInvalidFormat`              |
-| Read failure                 | Underlying io error             |
+| Empty file                   | `ErrInvalidFormat`              |
+| Row read failure             | `ErrInvalidFormat` (wrapped)    |
+
+Note: Row-level read errors are wrapped with `ErrInvalidFormat` because they
+indicate format-level problems (corrupted row data, truncated file, etc.).
 
 ---
 
@@ -274,7 +298,8 @@ var ErrInvalidFormat = errInvalidFormat{}
 
 ```go
 // NewParquetCodec creates a Parquet codec with the given schema.
-func NewParquetCodec(schema ParquetSchema, opts ...ParquetOption) Codec
+// Returns an error if the schema is invalid (bad types, empty names, duplicates).
+func NewParquetCodec(schema ParquetSchema, opts ...ParquetOption) (Codec, error)
 
 // ParquetSchema defines the record structure.
 type ParquetSchema struct {
@@ -306,9 +331,6 @@ const (
 ### Options
 
 ```go
-// WithRowGroupSize sets the target row group size in bytes.
-func WithRowGroupSize(bytes int64) ParquetOption
-
 // WithParquetCompression sets internal Parquet compression.
 func WithParquetCompression(codec ParquetCompression) ParquetOption
 
@@ -355,6 +377,17 @@ Parquet files produced by this codec are **tested with** and **expected to work 
 
 ## Implementation Notes
 
+### Internal Invariants
+
+The implementation validates all schema constraints in `NewParquetCodec`. Internal
+functions that process validated schemas may panic on invalid types as a defense-in-depth
+measure. Such panics indicate a programming error (validation bypass), not user input error.
+This is acceptable because:
+
+1. The panic is unreachable under normal usage (validation catches all invalid inputs).
+2. It provides a clear failure mode if validation is inadvertently bypassed.
+3. Returning errors from internal functions would add unnecessary complexity.
+
 ### Recommended Library
 
 The `parquet-go` library (github.com/parquet-go/parquet-go) is recommended:
@@ -376,8 +409,10 @@ Library choice is implementation detail, not contract-bound.
 ### Unit Tests
 
 - Encode/decode round-trip for all supported types.
-- Schema validation (missing fields, type mismatches, nullability).
+- Schema construction validation (invalid types, empty names, duplicates).
+- Record validation (missing fields, type mismatches, nullability).
 - Type coercion (JSON numbers, timestamp strings).
+- Numeric overflow protection (int32 range, int64 safe range, truncation).
 - Extra fields ignored (forward compatibility).
 - Empty record handling.
 - Large record batches (verify row group behavior).
