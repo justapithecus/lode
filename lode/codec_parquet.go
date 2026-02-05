@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"time"
 
 	"github.com/parquet-go/parquet-go"
@@ -27,6 +28,7 @@ const (
 	ParquetBool
 	ParquetBytes
 	ParquetTimestamp
+	parquetTypeMax // sentinel for validation
 )
 
 // ParquetField defines a single field in a Parquet schema.
@@ -54,13 +56,6 @@ const (
 // ParquetOption configures Parquet codec behavior.
 type ParquetOption func(*parquetCodec)
 
-// WithRowGroupSize sets the target row group size in bytes.
-func WithRowGroupSize(bytes int64) ParquetOption {
-	return func(c *parquetCodec) {
-		c.rowGroupSize = bytes
-	}
-}
-
 // WithParquetCompression sets internal Parquet compression.
 func WithParquetCompression(codec ParquetCompression) ParquetOption {
 	return func(c *parquetCodec) {
@@ -76,11 +71,10 @@ func WithParquetCompression(codec ParquetCompression) ParquetOption {
 
 // parquetCodec implements Codec for Apache Parquet format.
 type parquetCodec struct {
-	schema       ParquetSchema
-	rowGroupSize int64
-	compression  ParquetCompression
-	pqSchema     *parquet.Schema
-	fieldOrder   []string // ordered field names matching schema columns
+	schema      ParquetSchema
+	compression ParquetCompression
+	pqSchema    *parquet.Schema
+	fieldOrder  []string // ordered field names matching schema columns
 }
 
 // NewParquetCodec creates a Parquet codec with the given schema.
@@ -88,14 +82,25 @@ type parquetCodec struct {
 // The schema defines the structure of records. All records must conform to this
 // schema during encoding. Fields not in the schema are silently ignored.
 //
+// Returns an error if the schema contains invalid field types.
+//
 // Parquet codec does NOT implement StreamingRecordCodec because Parquet files
 // require a footer that references all row groups. Use Dataset.Write for
 // batched encoding.
-func NewParquetCodec(schema ParquetSchema, opts ...ParquetOption) Codec {
+func NewParquetCodec(schema ParquetSchema, opts ...ParquetOption) (Codec, error) {
+	// Validate schema field types
+	for _, field := range schema.Fields {
+		if field.Type < 0 || field.Type >= parquetTypeMax {
+			return nil, fmt.Errorf("%w: invalid ParquetType %d for field %q", ErrSchemaViolation, field.Type, field.Name)
+		}
+		if field.Name == "" {
+			return nil, fmt.Errorf("%w: field name cannot be empty", ErrSchemaViolation)
+		}
+	}
+
 	c := &parquetCodec{
-		schema:       schema,
-		rowGroupSize: 128 * 1024 * 1024, // 128 MB default
-		compression:  ParquetCompressionSnappy,
+		schema:      schema,
+		compression: ParquetCompressionSnappy,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -108,7 +113,7 @@ func NewParquetCodec(schema ParquetSchema, opts ...ParquetOption) Codec {
 		c.fieldOrder[i] = f.Name()
 	}
 
-	return c
+	return c, nil
 }
 
 func (c *parquetCodec) Name() string {
@@ -194,7 +199,8 @@ func (c *parquetCodec) Decode(r io.Reader) ([]any, error) {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return nil, fmt.Errorf("parquet: read rows: %w", err)
+			// Wrap ReadRows errors with ErrInvalidFormat per contract
+			return nil, fmt.Errorf("%w: read rows: %w", ErrInvalidFormat, err)
 		}
 	}
 
@@ -276,17 +282,31 @@ func (c *parquetCodec) rowToRecord(row parquet.Row) map[string]any {
 }
 
 // convertToParquetValue converts a Go value to a parquet Value.
+//
+//nolint:gocyclo // Type switch with validation for each Parquet type is inherently complex.
 func (c *parquetCodec) convertToParquetValue(val any, field ParquetField, index int) (parquet.Value, error) {
 	switch field.Type {
 	case ParquetInt32:
 		switch v := val.(type) {
 		case int:
+			if v < math.MinInt32 || v > math.MaxInt32 {
+				return parquet.Value{}, fmt.Errorf("%w: record %d field %q: value %d overflows int32", ErrSchemaViolation, index, field.Name, v)
+			}
 			return parquet.Int32Value(int32(v)), nil
 		case int32:
 			return parquet.Int32Value(v), nil
 		case int64:
+			if v < math.MinInt32 || v > math.MaxInt32 {
+				return parquet.Value{}, fmt.Errorf("%w: record %d field %q: value %d overflows int32", ErrSchemaViolation, index, field.Name, v)
+			}
 			return parquet.Int32Value(int32(v)), nil
 		case float64: // JSON numbers
+			if math.Trunc(v) != v {
+				return parquet.Value{}, fmt.Errorf("%w: record %d field %q: float64 %v is not an integer", ErrSchemaViolation, index, field.Name, v)
+			}
+			if v < math.MinInt32 || v > math.MaxInt32 {
+				return parquet.Value{}, fmt.Errorf("%w: record %d field %q: value %v overflows int32", ErrSchemaViolation, index, field.Name, v)
+			}
 			return parquet.Int32Value(int32(v)), nil
 		default:
 			return parquet.Value{}, fmt.Errorf("%w: record %d field %q: expected int32, got %T", ErrSchemaViolation, index, field.Name, val)
@@ -301,6 +321,13 @@ func (c *parquetCodec) convertToParquetValue(val any, field ParquetField, index 
 		case int64:
 			return parquet.Int64Value(v), nil
 		case float64: // JSON numbers
+			if math.Trunc(v) != v {
+				return parquet.Value{}, fmt.Errorf("%w: record %d field %q: float64 %v is not an integer", ErrSchemaViolation, index, field.Name, v)
+			}
+			// float64 can represent integers up to 2^53 exactly
+			if v < -9007199254740992 || v > 9007199254740992 {
+				return parquet.Value{}, fmt.Errorf("%w: record %d field %q: value %v exceeds safe integer range for float64", ErrSchemaViolation, index, field.Name, v)
+			}
 			return parquet.Int64Value(int64(v)), nil
 		default:
 			return parquet.Value{}, fmt.Errorf("%w: record %d field %q: expected int64, got %T", ErrSchemaViolation, index, field.Name, val)
@@ -425,7 +452,8 @@ func buildFieldNode(field ParquetField) parquet.Node {
 	case ParquetTimestamp:
 		node = parquet.Timestamp(parquet.Nanosecond)
 	default:
-		node = parquet.String() // fallback
+		// This should never happen if NewParquetCodec validates correctly
+		panic(fmt.Sprintf("invalid ParquetType %d for field %q", field.Type, field.Name))
 	}
 
 	if field.Nullable {
