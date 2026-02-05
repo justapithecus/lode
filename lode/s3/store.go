@@ -322,11 +322,14 @@ func (s *Store) putMultipartFromFile(ctx context.Context, fullKey string, file i
 	})
 	if err != nil {
 		abortUpload()
-		// Check for PreconditionFailed (object already exists)
+		// Check for conditional write failures (object already exists)
 		var apiErr smithy.APIError
 		if errors.As(err, &apiErr) {
 			code := apiErr.ErrorCode()
-			if code == "PreconditionFailed" || code == "412" {
+			// PreconditionFailed (412) - standard conditional failure
+			// ConditionalRequestConflict (409) - S3 conflict during conditional request
+			if code == "PreconditionFailed" || code == "412" ||
+				code == "ConditionalRequestConflict" || code == "409" {
 				return lode.ErrPathExists
 			}
 		}
