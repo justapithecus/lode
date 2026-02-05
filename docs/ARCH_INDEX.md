@@ -40,6 +40,7 @@ Plans, contracts, and research notes. Contracts define **system behavior**.
 - `contracts/CONTRACT_ERRORS.md` — error taxonomy and handling guidelines
 - `contracts/CONTRACT_TEST_MATRIX.md` — contract-to-test traceability and coverage gaps
 - `contracts/CONTRACT_EXAMPLES.md` — example and callsite conventions
+- `contracts/CONTRACT_VOLUME.md` — draft contract for future Volume persistence model
 
 Contracts are authoritative over code.
 
