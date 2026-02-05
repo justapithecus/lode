@@ -31,8 +31,7 @@ const (
 	parquetTypeMax // sentinel for validation
 )
 
-// int32 bounds for overflow checks (avoids dependency on math.MinInt32/MaxInt32
-// which were added in Go 1.17).
+// int32 bounds for overflow checks (stdlib has no int32 bounds constants).
 const (
 	minInt32     = -1 << 31  // -2147483648
 	maxInt32     = 1<<31 - 1 // 2147483647
