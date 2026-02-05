@@ -32,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.4.0] - 2026-02-04
+## [0.4.0] - 2026-02-05
 
 ### Added
 
@@ -48,6 +48,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Breaking Changes
 
 - **StreamWriteRecords Signature**: Parameter order changed from `StreamWriteRecords(ctx, metadata, records)` to `StreamWriteRecords(ctx, records, metadata)`. Update callsites accordingly.
+
+### Known Limitations
+
+- **G3-4 (Residual Risk)**: Context cancellation cleanup behavior remains nondeterministic due to
+  timing characteristics of storage adapters. Deterministic abort paths are tested; context
+  cancellation semantics documented as best-effort. See `docs/contracts/CONTRACT_TEST_MATRIX.md` for details.
 
 ### Upgrade Notes
 
