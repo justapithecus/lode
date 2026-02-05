@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- N/A
+- **Zstd Compressor**: `NewZstdCompressor()` for high-ratio compression (implementation pending)
 
 ### Changed
 

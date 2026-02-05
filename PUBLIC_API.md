@@ -107,6 +107,7 @@ includes a curated set of components:
 **Compressors:**
 - `NewNoOpCompressor()` - No compression (default)
 - `NewGzipCompressor()` - Gzip compression
+- `NewZstdCompressor()` - Zstd compression (higher ratio, faster decompression)
 
 **Codecs:**
 - `NewJSONLCodec()` - JSON Lines format
@@ -250,6 +251,23 @@ Common errors when using streaming APIs:
 - Use `Write` for in-memory data, partitioned data, or codecs that do not support streaming.
 - Use `StreamWrite` for large binary payloads that should be streamed once (no codec).
 - Use `StreamWriteRecords` for large record streams with streaming-capable codecs (no partitioning).
+
+---
+
+## Choosing a Compressor
+
+| Compressor | Use When | Trade-offs |
+|------------|----------|------------|
+| `NewNoOpCompressor()` | Data is already compressed, or compression overhead not justified | No CPU cost; no size reduction |
+| `NewGzipCompressor()` | Broad compatibility required (gzip is universal) | Good ratio; moderate speed |
+| `NewZstdCompressor()` | Best compression ratio or fast decompression needed | Better ratio than gzip; faster decompression; requires zstd support |
+
+**Notes:**
+- Compressor choice is recorded in manifests; readers must support the compressor used
+- Compression is applied after codec encoding (if any)
+- Streaming writes (`StreamWrite`, `StreamWriteRecords`) apply compression on-the-fly
+
+*Contract reference: [`CONTRACT_LAYOUT.md`](docs/contracts/CONTRACT_LAYOUT.md) §Compressor*
 
 ---
 
