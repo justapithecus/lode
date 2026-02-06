@@ -130,7 +130,7 @@ Code in this repository should prefer declarative patterns over imperative contr
 ### Anti-patterns to avoid
 
 - Long switch/if chains that could be a map lookup
-- Deeply nested control flow (> 2 levels)
+- Deep nesting (prefer ≤2 levels unless it improves clarity)
 - Inline anonymous functions with complex logic
 - Mixing validation, transformation, and I/O in a single function
 - Repeated patterns that should be a helper
