@@ -10,6 +10,22 @@ resumable byte-range storage.
 
 ---
 
+## What Lode is (and is not)
+
+**Lode is:**
+- An embeddable Go library
+- A persistence framework for structured data and sparse byte ranges
+- Explicit and predictable by design
+
+**Lode is not:**
+- A database or storage engine
+- A query planner or execution runtime
+- A distributed system or background service
+
+Lode owns *structure and lifecycle*, not execution.
+
+---
+
 ## Why Lode exists
 
 Many systems already use object storage as their primary persistence layer:
@@ -151,25 +167,6 @@ See [`examples/`](#examples) for complete runnable code.
 2. Is it a large binary blob (no structure)? → Use `StreamWrite`
 3. Is it a large stream of records? → Use `StreamWriteRecords` with a streaming codec
 4. Is it a sparse/resumable byte address space? → Use `Volume`
-
----
-
-## What Lode is (and is not)
-
-### Lode is:
-- An embeddable Go library
-- A persistence framework
-- A way to organize object storage safely
-- Explicit, boring, and predictable
-
-### Lode is not:
-- A database
-- A storage engine
-- A query planner
-- A distributed system
-- A background service
-
-Lode owns *structure and life-cycle*, not execution.
 
 ---
 
