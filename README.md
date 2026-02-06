@@ -139,12 +139,12 @@ See [`examples/`](#examples) for complete runnable code.
 
 ## Which Write API?
 
-| API | Use Case | Codec | Partitioning |
-|-----|----------|-------|--------------|
-| `Write` | In-memory data, small batches | ✅ Optional | ✅ Supported |
-| `StreamWrite` | Large binary payloads (GB+) | ❌ Raw only | ❌ Not supported |
-| `StreamWriteRecords` | Large record streams | ✅ Required (streaming) | ❌ Not supported |
-| `Volume.StageWriteAt` + `Commit` | Sparse byte ranges, resumable | ❌ Raw only | ❌ Not applicable |
+| Paradigm | API | Use Case | Codec | Partitioning |
+|----------|-----|----------|-------|--------------|
+| Dataset | `Write` | In-memory data, small batches | ✅ Optional | ✅ Supported |
+| Dataset | `StreamWrite` | Large binary payloads (GB+) | ❌ Raw only | ❌ Not supported |
+| Dataset | `StreamWriteRecords` | Large record streams | ✅ Required (streaming) | ❌ Not supported |
+| Volume | `StageWriteAt` + `Commit` | Sparse byte ranges, resumable | ❌ Raw only | ❌ Not applicable |
 
 **Decision flow:**
 1. Is the data already in memory? → Use `Write`
