@@ -15,6 +15,7 @@ resumable byte-range storage.
 **Lode is:**
 - An embeddable Go library
 - A persistence framework for structured data and sparse byte ranges
+- Snapshots, atomic commits, and metadata guarantees you'd otherwise hand-roll on raw storage APIs
 - Explicit and predictable by design
 
 **Lode is not:**
