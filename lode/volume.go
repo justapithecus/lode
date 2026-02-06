@@ -79,11 +79,6 @@ func volumeBlockPath(id VolumeID, offset, length int64) string {
 	return path.Join("volumes", string(id), "data", fmt.Sprintf("%d-%d.bin", offset, length))
 }
 
-// volumeDataPrefix returns "volumes/<id>/data/" for path validation.
-func volumeDataPrefix(id VolumeID) string {
-	return path.Join("volumes", string(id), "data") + "/"
-}
-
 // -----------------------------------------------------------------------------
 // Write surface
 // -----------------------------------------------------------------------------
@@ -152,20 +147,8 @@ func (v *volume) Commit(ctx context.Context, blocks []BlockRef, metadata Metadat
 		existingBlocks = latest.Manifest.Blocks
 	}
 
-	// Build cumulative block set.
-	cumulativeBlocks := make([]BlockRef, 0, len(existingBlocks)+len(blocks))
-	cumulativeBlocks = append(cumulativeBlocks, existingBlocks...)
-	cumulativeBlocks = append(cumulativeBlocks, blocks...)
-
-	// Validate all new blocks have required fields and are within bounds.
-	dataPrefix := volumeDataPrefix(v.id)
+	// Validate all new blocks have required fields, conform to fixed layout, and are within bounds.
 	for _, b := range blocks {
-		if b.Path == "" {
-			return nil, fmt.Errorf("lode: block path must not be empty (offset=%d, length=%d)", b.Offset, b.Length)
-		}
-		if !strings.HasPrefix(b.Path, dataPrefix) {
-			return nil, fmt.Errorf("lode: block path %q does not match volume layout (expected prefix %q)", b.Path, dataPrefix)
-		}
 		if b.Offset < 0 {
 			return nil, fmt.Errorf("lode: block offset must be non-negative (offset=%d)", b.Offset)
 		}
@@ -175,7 +158,32 @@ func (v *volume) Commit(ctx context.Context, blocks []BlockRef, metadata Metadat
 		if b.Offset+b.Length > v.totalLength {
 			return nil, fmt.Errorf("lode: block exceeds volume address space (offset=%d, length=%d, totalLength=%d)", b.Offset, b.Length, v.totalLength)
 		}
+		expectedPath := volumeBlockPath(v.id, b.Offset, b.Length)
+		if b.Path != expectedPath {
+			return nil, fmt.Errorf("lode: block path %q does not match expected layout path %q", b.Path, expectedPath)
+		}
 	}
+
+	// Verify at least one block is genuinely new (not already in the parent manifest).
+	existingSet := make(map[string]struct{}, len(existingBlocks))
+	for _, b := range existingBlocks {
+		existingSet[b.Path] = struct{}{}
+	}
+	hasNew := false
+	for _, b := range blocks {
+		if _, found := existingSet[b.Path]; !found {
+			hasNew = true
+			break
+		}
+	}
+	if !hasNew {
+		return nil, fmt.Errorf("lode: commit must include at least one new block (all provided blocks already committed)")
+	}
+
+	// Build cumulative block set.
+	cumulativeBlocks := make([]BlockRef, 0, len(existingBlocks)+len(blocks))
+	cumulativeBlocks = append(cumulativeBlocks, existingBlocks...)
+	cumulativeBlocks = append(cumulativeBlocks, blocks...)
 
 	// Validate no overlaps in the full cumulative set.
 	if err := validateNoOverlaps(cumulativeBlocks); err != nil {
@@ -400,6 +408,9 @@ func (v *volume) loadSnapshot(ctx context.Context, id VolumeSnapshotID, manifest
 		return nil, err
 	}
 
+	if manifest.VolumeID != v.id {
+		return nil, fmt.Errorf("lode: manifest volume_id %q does not match volume %q", manifest.VolumeID, v.id)
+	}
 	if manifest.TotalLength != v.totalLength {
 		return nil, fmt.Errorf("lode: manifest total_length %d does not match volume total_length %d", manifest.TotalLength, v.totalLength)
 	}
