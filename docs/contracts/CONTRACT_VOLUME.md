@@ -3,7 +3,7 @@
 This document defines the planned contract for the `Volume` persistence paradigm.
 
 Status:
-- Draft for roadmap and design alignment
+- Targeted for v0.6.0 implementation
 - Becomes active when `Volume` is introduced into the public API
 
 ---
@@ -33,6 +33,14 @@ A logical byte address space `[0..N)` identified by `VolumeID` and `TotalLength`
 ### Volume Snapshot
 
 An immutable commit that records a set of verified committed ranges.
+
+### Volume Snapshot ID
+
+A stable identifier for a committed Volume snapshot.
+
+### SegmentRef
+
+An immutable reference to a committed segment (offset, length, object path).
 
 ### Volume Manifest
 
@@ -87,6 +95,45 @@ Required behavior:
 - If any sub-range is missing, return an explicit missing-range error.
 - No zero-fill fallback.
 - No partial-success ambiguity for committed read paths.
+
+---
+
+## Public API Surface (v0.6)
+
+The public Volume API is explicit and minimal:
+
+```go
+// VolumeID uniquely identifies a volume.
+type VolumeID string
+
+// NewVolume creates a volume with a fixed total length.
+func NewVolume(id VolumeID, storeFactory StoreFactory, totalLength int64, opts ...VolumeOption) (*Volume, error)
+
+// Volume represents a sparse, range-addressable byte space.
+type Volume struct { /* opaque */ }
+
+// StageWriteAt writes data at an offset and returns a committed-segment handle.
+// Staged data is not visible until Commit is called.
+func (v *Volume) StageWriteAt(ctx context.Context, offset int64, r io.Reader) (SegmentRef, error)
+
+// Commit records the provided segments into a new immutable snapshot.
+func (v *Volume) Commit(ctx context.Context, segments []SegmentRef, metadata Metadata) (*VolumeSnapshot, error)
+
+// ReadAt reads a fully committed range from a snapshot.
+func (v *Volume) ReadAt(ctx context.Context, snapshotID VolumeSnapshotID, offset, length int64) ([]byte, error)
+```
+
+API constraints:
+- `StageWriteAt` MUST NOT create snapshot visibility.
+- `Commit` MUST be manifest-driven and immutable.
+- `ReadAt` MUST return a missing-range error if any sub-range is uncommitted.
+
+---
+
+## Error Semantics
+
+- Missing committed range MUST return `ErrRangeMissing`.
+- Range reads MUST NOT return partial data without error.
 
 ---
 
