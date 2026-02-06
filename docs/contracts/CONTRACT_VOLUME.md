@@ -3,7 +3,7 @@
 This document defines the planned contract for the `Volume` persistence paradigm.
 
 Status:
-- Draft for roadmap and design alignment
+- Targeted for v0.6.0 implementation
 - Becomes active when `Volume` is introduced into the public API
 
 ---
@@ -33,6 +33,15 @@ A logical byte address space `[0..N)` identified by `VolumeID` and `TotalLength`
 ### Volume Snapshot
 
 An immutable commit that records a set of verified committed ranges.
+
+### Volume Snapshot ID
+
+A stable identifier for a committed Volume snapshot.
+
+### SegmentRef
+
+A reference to staged data eligible for commit (offset, length, object path).
+It is not committed until included in a snapshot manifest.
 
 ### Volume Manifest
 
@@ -74,6 +83,7 @@ Rules:
 - Unverified or uncommitted ranges MUST NOT appear in committed manifests.
 - Commit visibility is manifest-driven, same as Dataset.
 - Snapshots are immutable once committed.
+- Overlapping committed ranges within a single snapshot are invalid input.
 
 ---
 
@@ -87,6 +97,46 @@ Required behavior:
 - If any sub-range is missing, return an explicit missing-range error.
 - No zero-fill fallback.
 - No partial-success ambiguity for committed read paths.
+- Reads against a snapshot MUST reflect exactly the manifest state at commit time.
+
+---
+
+## Public API Surface (v0.6)
+
+The public Volume API is explicit and minimal:
+
+```go
+// VolumeID uniquely identifies a volume.
+type VolumeID string
+
+// NewVolume creates a volume with a fixed total length.
+func NewVolume(id VolumeID, storeFactory StoreFactory, totalLength int64, opts ...VolumeOption) (*Volume, error)
+
+// Volume represents a sparse, range-addressable byte space.
+type Volume struct { /* opaque */ }
+
+// StageWriteAt writes data at an offset and returns a committed-segment handle.
+// Staged data is not visible until Commit is called.
+func (v *Volume) StageWriteAt(ctx context.Context, offset int64, r io.Reader) (SegmentRef, error)
+
+// Commit records the provided segments into a new immutable snapshot.
+func (v *Volume) Commit(ctx context.Context, segments []SegmentRef, metadata Metadata) (*VolumeSnapshot, error)
+
+// ReadAt reads a fully committed range from a snapshot.
+func (v *Volume) ReadAt(ctx context.Context, snapshotID VolumeSnapshotID, offset, length int64) ([]byte, error)
+```
+
+API constraints:
+- `StageWriteAt` MUST NOT create snapshot visibility.
+- `Commit` MUST be manifest-driven and immutable.
+- `ReadAt` MUST return a missing-range error if any sub-range is uncommitted.
+
+---
+
+## Error Semantics
+
+- Missing committed range MUST return `ErrRangeMissing`.
+- Range reads MUST NOT return partial data without error.
 
 ---
 
@@ -97,6 +147,8 @@ coordination.
 
 Concurrent writers MAY produce conflicting parent relationships or overlapping
 intent; Lode does not resolve these conflicts automatically.
+
+Snapshot history for a Volume is linear.
 
 ---
 
@@ -131,3 +183,23 @@ it belongs to `Volume`, not `Dataset`.
 - Inferring committed ranges not present in the manifest.
 - Treating staged/unverified data as committed truth.
 - Implicit background compaction or mutation of committed segments.
+
+---
+
+## Completeness
+
+A Volume is considered complete when the union of committed ranges covers
+the full address space `[0..N)`. Completeness is derived from committed ranges,
+not stored as a separate flag.
+
+---
+
+## Invariants
+
+The following invariants MUST hold:
+
+1. A snapshot’s manifest is the sole authority for read visibility.
+2. No data may be readable unless referenced by a committed snapshot.
+3. All committed segments are immutable.
+4. Snapshot history for a Volume is linear.
+5. Completeness is derived solely from committed ranges.

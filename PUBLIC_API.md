@@ -63,6 +63,22 @@ reader, _ := lode.NewReader(
 )
 ```
 
+### Volume (v0.6)
+
+`NewVolume(id, storeFactory, totalLength, opts...)` creates a sparse, range-addressable
+byte space with manifest-driven commit semantics.
+
+**Status**: planned for v0.6 (not in v0.5).
+
+<!-- planned -->
+```go
+vol, _ := lode.NewVolume(
+    "archive",
+    lode.NewFSFactory("/data"),
+    10<<30, // 10 GB total length
+)
+```
+
 ---
 
 ## Configuration Options
@@ -498,6 +514,7 @@ if errors.Is(err, lode.ErrNoSnapshots) {
 | `ErrNilIterator` | Nil iterator passed to StreamWriteRecords | Dataset |
 | `ErrPartitioningNotSupported` | StreamWriteRecords with partitioning | Dataset |
 | `ErrRangeReadNotSupported` | Store doesn't support range reads | Storage |
+| `ErrRangeMissing` | Volume ReadAt range not fully committed | Volume |
 | `ErrSchemaViolation` | Record doesn't conform to Parquet schema | Parquet Codec |
 | `ErrInvalidFormat` | Malformed or corrupted Parquet file | Parquet Codec |
 

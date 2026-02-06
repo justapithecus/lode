@@ -211,6 +211,22 @@ See [CONTRACT_PARQUET.md](CONTRACT_PARQUET.md) for complete Parquet codec semant
 
 ---
 
+### 9. Volume Range Errors
+
+These indicate missing committed ranges in Volume reads.
+
+| Error | Source | Meaning |
+|-------|--------|---------|
+| `lode.ErrRangeMissing` | Volume.ReadAt | Requested range is not fully committed |
+
+**Behavior**:
+- `ReadAt` returns `ErrRangeMissing` if any sub-range is uncommitted.
+- Partial data MUST NOT be returned for committed read paths.
+
+See [CONTRACT_VOLUME.md](CONTRACT_VOLUME.md) for Volume semantics.
+
+---
+
 ## Error Handling Guidelines
 
 ### Retry-Safe Errors

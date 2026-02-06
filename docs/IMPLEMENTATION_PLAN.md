@@ -261,9 +261,9 @@ Any change that affects contract behavior must:
 
 ### Priority Track B — Format and Ecosystem
 
-- [ ] Prioritize Parquet codec delivery
+- [x] Prioritize Parquet codec delivery
 - [ ] Define additive manifest stats needed for Parquet-oriented pruning workflows
-- [ ] Add/refresh examples for columnar and streaming workflows
+- [x] Add/refresh examples for columnar and streaming workflows
 
 ### Priority Track C — Zarr/Xarray Direction
 
@@ -310,3 +310,34 @@ without blurring Lode's scope boundary.
 - [ ] No networking, scheduling, or runtime orchestration
 - [ ] No hash policy ownership in Lode core
 - [ ] No deployables/daemons added to Lode
+
+---
+
+## v0.6 Execution Plan (Volume Implementation)
+
+### PR1 — Volume Contract Finalization
+- [ ] Finalize `CONTRACT_VOLUME.md` as authoritative for v0.6 (remove draft language)
+- [ ] Add explicit error sentinel for missing-range reads
+- [ ] Align `CONTRACT_ERRORS.md` with new Volume error taxonomy
+
+### PR2 — Public API Surface (Volume)
+- [ ] Document `Volume` constructor and core methods in `PUBLIC_API.md`
+- [ ] Add Volume section to examples index (planned)
+- [ ] Ensure Dataset/Volume boundary text is explicit and consistent
+
+### PR3 — Manifest + Model Types
+- [ ] Define Volume manifest schema and types (`volume_id`, `total_length`, segments)
+- [ ] Validate manifest invariants and explicit range coverage
+
+### PR4 — Core Implementation (FS + Memory)
+- [ ] Implement Volume staging + commit path with manifest-driven visibility
+- [ ] Implement range reads with explicit missing-range error
+- [ ] Maintain immutability: no mutation of committed data
+
+### PR5 — Tests (Correctness + Resume)
+- [ ] Deterministic tests for partial ranges, missing-range errors, and resume
+- [ ] Integration coverage for FS and memory adapters
+
+### PR6 — Examples + Docs
+- [ ] Add a runnable Volume example demonstrating sparse ranges
+- [ ] Update README/PUBLIC_API to include Volume example references
