@@ -17,7 +17,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/justapithecus/lode/internal/testutil"
 	"github.com/justapithecus/lode/lode"
 )
 
@@ -35,7 +34,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to create temp dir: %w", err)
 	}
-	defer testutil.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir)
 
 	fmt.Printf("Storage root: %s\n\n", tmpDir)
 
