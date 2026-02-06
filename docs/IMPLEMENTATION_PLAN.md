@@ -293,10 +293,10 @@ without blurring Lode's scope boundary.
 ### Phase-0 Volume Deliverables
 
 - [ ] Public `Volume` abstraction and constructor shape documented
-- [ ] Volume snapshot manifest model documented (`volume_id`, `total_length`, committed segments)
+- [ ] Volume snapshot manifest model documented (`volume_id`, `total_length`, committed blocks)
 - [ ] Explicit range-read semantics documented (missing ranges are errors, no zero-fill inference)
 - [ ] Filesystem and memory validation examples for sparse/resumable flows
-- [ ] Restart/resume correctness tests for committed segments
+- [ ] Restart/resume correctness tests for committed blocks
 
 ### Dataset Streaming Boundary (Retained)
 
@@ -319,7 +319,7 @@ without blurring Lode's scope boundary.
 
 | ID | Decision | Resolution |
 |----|----------|------------|
-| DD-1 | SegmentRef naming | Reader `SegmentRef` → `SnapshotRef`. Volume gets `SegmentRef`. |
+| DD-1 | Naming disambiguation | `Reader` → `DatasetReader`. `SegmentRef` → `ManifestRef` (DatasetReader), `BlockRef` (Volume). `ListSegments` → `ListManifests`. Volume uses composed `VolumeWriter` + `VolumeReader` interface. |
 | DD-2 | Manifest model | Cumulative. Each snapshot is self-contained. |
 | DD-3 | Storage layout | Fixed internal layout. Layouts are Dataset-specific. |
 | DD-4 | Staged data lifecycle | Direct to final path. Manifest = visibility. No Abort API. |
@@ -329,9 +329,9 @@ without blurring Lode's scope boundary.
 | DD-8 | Overlap validation | Strict on full cumulative manifest. Supersession explored later. |
 
 Additional resolved items:
-- Empty commits (no new segments) are invalid
-- No segment count limit for v0.6
-- `ErrOverlappingSegments` sentinel added
+- Empty commits (no new blocks) are invalid
+- No block count limit for v0.6
+- `ErrOverlappingBlocks` sentinel added
 - S3 validation deferred to post-v0.6
 - Unix nanosecond IDs (consistent with Dataset)
 - Future roadmap: CAS (multi-process) + parallel staging (single-process)
@@ -339,27 +339,28 @@ Additional resolved items:
 ### PR1 — Contract Finalization and Design Decisions
 - [ ] Finalize `CONTRACT_VOLUME.md` as authoritative (remove draft, apply DD-1–DD-8)
 - [ ] Add concurrency matrices to `CONTRACT_WRITE_API.md` and `CONTRACT_VOLUME.md`
-- [ ] Add `ErrOverlappingSegments` to `CONTRACT_ERRORS.md`
+- [ ] Add `ErrOverlappingBlocks` to `CONTRACT_ERRORS.md`
 - [ ] Add Layout scope note to `CONTRACT_LAYOUT.md` (Dataset-specific)
 - [ ] Update `PUBLIC_API.md` Volume section with finalized API surface
 - [ ] Update `IMPLEMENTATION_PLAN.md` with resolved decisions
 
 ### PR2 — Volume Types + Dataset Rename
 - [ ] Rename `Snapshot` → `DatasetSnapshot`, `SnapshotID` → `DatasetSnapshotID` in `api.go`
-- [ ] Rename `SegmentRef` → `SnapshotRef` in Reader API
-- [ ] Add Volume types: `VolumeID`, `VolumeSnapshotID`, `SegmentRef`, `VolumeManifest`, `VolumeSnapshot`
-- [ ] Add sentinels: `ErrRangeMissing`, `ErrOverlappingSegments`
+- [ ] Rename `Reader` → `DatasetReader`, `NewReader` → `NewDatasetReader`
+- [ ] Rename `SegmentRef` → `ManifestRef`, `ListSegments` → `ListManifests` in DatasetReader API
+- [ ] Add Volume types: `VolumeID`, `VolumeSnapshotID`, `BlockRef`, `VolumeManifest`, `VolumeSnapshot`
+- [ ] Add sentinels: `ErrRangeMissing`, `ErrOverlappingBlocks`
 - [ ] Add `VolumeOption` type with `WithVolumeChecksum`
 - [ ] Cascade renames through all code, tests, and examples
 
 ### PR3 — Core Volume Implementation (Stage + Commit + ReadAt)
 - [ ] `NewVolume` constructor with validation
-- [ ] `StageWriteAt`: write data to final path, return `SegmentRef`
+- [ ] `StageWriteAt`: write data to final path, return `BlockRef`
 - [ ] `Commit`: validate, build cumulative manifest, write to store
 - [ ] `ReadAt`: resolve range from manifest, read from store
 - [ ] `Latest` / `Snapshots` / `Snapshot` for history access
 - [ ] Fixed layout: `volumes/<id>/snapshots/<snap>/manifest.json`, `volumes/<id>/data/<offset>-<length>.bin`
-- [ ] Overlap validation (sort + sweep on full cumulative set)
+- [ ] Overlap validation (sort + sweep on full cumulative block set)
 - [ ] Works with fsStore and memoryStore
 
 ### PR4 — Comprehensive Test Suite

@@ -64,16 +64,16 @@ type Store interface {
 
 ### Range read access paths
 
-The `Reader` façade provides `ReaderAt(ctx, ObjectRef)` for random access reads.
+The `DatasetReader` façade provides `ReaderAt(ctx, ObjectRef)` for random access reads.
 Callers needing direct byte-range reads have two options:
 
-1. **Via Reader.ReaderAt**: Returns `io.ReaderAt` for standard random access.
+1. **Via DatasetReader.ReaderAt**: Returns `io.ReaderAt` for standard random access.
    Suitable for most use cases (Parquet footers, block indexes, etc.).
 
 2. **Via Store.ReadRange**: Direct byte-range reads on the underlying store.
    Callers with access to the `Store` interface can use `ReadRange(ctx, path, offset, length)`.
 
-The `Reader` interface intentionally omits a direct `ReadRange` method because
+The `DatasetReader` interface intentionally omits a direct `ReadRange` method because
 `io.ReaderAt` covers the majority of range-read use cases and provides a
 standard Go interface for interoperability with existing libraries.
 
@@ -96,8 +96,8 @@ This is essential for Parquet footers, Arrow metadata, and block indexes.
 type ReadAPI interface {
     ListDatasets(ctx context.Context, opts DatasetListOptions) ([]DatasetID, error)
     ListPartitions(ctx context.Context, dataset DatasetID, opts PartitionListOptions) ([]PartitionRef, error)
-    ListSegments(ctx context.Context, dataset DatasetID, partition PartitionPath, opts SegmentListOptions) ([]SegmentRef, error)
-    GetManifest(ctx context.Context, dataset DatasetID, seg SegmentRef) (Manifest, error)
+    ListManifests(ctx context.Context, dataset DatasetID, partition PartitionPath, opts ManifestListOptions) ([]ManifestRef, error)
+    GetManifest(ctx context.Context, dataset DatasetID, ref ManifestRef) (Manifest, error)
     OpenObject(ctx context.Context, obj ObjectRef) (io.ReadCloser, error)
     ReaderAt(ctx context.Context, obj ObjectRef) (ReaderAt, error)
 }

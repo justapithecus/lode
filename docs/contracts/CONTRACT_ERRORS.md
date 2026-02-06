@@ -27,7 +27,7 @@ These indicate a requested resource does not exist.
 | `lode.ErrNoManifests` | Read API | Storage contains objects but no valid manifests |
 
 **Behavior**:
-- `ListSegments` returns `ErrNotFound` when dataset has no committed manifests.
+- `ListManifests` returns `ErrNotFound` when dataset has no committed manifests.
 - `ListPartitions` returns `ErrNotFound` when dataset has no committed manifests.
 - `GetManifest` returns `ErrNotFound` when manifest path doesn't exist.
 - `Snapshot` returns `ErrNotFound` when snapshot ID doesn't exist.
@@ -86,7 +86,7 @@ These indicate a manifest fails structural or semantic validation.
 
 **Behavior**:
 - `GetManifest` returns wrapped `ManifestValidationError` for invalid manifests.
-- `ListSegments` returns error (not skip) when manifest validation fails.
+- `ListManifests` returns error (not skip) when manifest validation fails.
 - `ListPartitions` returns error (not skip) when manifest validation fails.
 
 ---
@@ -131,10 +131,10 @@ These indicate invalid configuration at setup time.
 
 | Error | Source | Meaning |
 |-------|--------|---------|
-| Error | Reader/Dataset | Nil store provided |
+| Error | DatasetReader/Dataset | Nil store provided |
 
 **Behavior**:
-- `NewReader(nil)` returns error.
+- `NewDatasetReader(nil)` returns error.
 - `NewDataset(id, nil)` returns error.
 
 ---
@@ -218,20 +218,20 @@ These indicate Volume-specific failures.
 | Error | Source | Meaning |
 |-------|--------|---------|
 | `lode.ErrRangeMissing` | Volume.ReadAt | Requested range is not fully committed |
-| `lode.ErrOverlappingSegments` | Volume.Commit | Committed segments overlap in the cumulative manifest |
+| `lode.ErrOverlappingBlocks` | Volume.Commit | Committed blocks overlap in the cumulative manifest |
 
 **ErrRangeMissing Behavior**:
 - `ReadAt` returns `ErrRangeMissing` if any sub-range is uncommitted.
 - Partial data MUST NOT be returned for committed read paths.
 
-**ErrOverlappingSegments Behavior**:
-- `Commit` validates the full cumulative segment set (existing + new segments).
-- If any segments overlap, `Commit` returns `ErrOverlappingSegments`.
-- Overlap is defined as two segments whose byte ranges `[offset, offset+length)`
+**ErrOverlappingBlocks Behavior**:
+- `Commit` validates the full cumulative block set (existing + new blocks).
+- If any blocks overlap, `Commit` returns `ErrOverlappingBlocks`.
+- Overlap is defined as two blocks whose byte ranges `[offset, offset+length)`
   intersect.
 
 **Other Volume Error Behavior**:
-- `Commit` with empty segment list returns an error.
+- `Commit` with empty block list returns an error.
 - `Commit` with nil metadata returns an error.
 - `Volume.Latest` returns `ErrNoSnapshots` when no snapshots exist.
 - `Volume.Snapshot` returns `ErrNotFound` when snapshot ID doesn't exist.
@@ -251,7 +251,7 @@ See [CONTRACT_VOLUME.md](CONTRACT_VOLUME.md) for full Volume semantics.
 - `ErrDatasetsNotModeled` — reconfigure with different layout.
 - `ManifestValidationError` — data corruption, investigate source.
 - `ErrPathExists` — logic error in caller (double-write attempt).
-- `ErrOverlappingSegments` — logic error in caller (overlapping byte ranges).
+- `ErrOverlappingBlocks` — logic error in caller (overlapping byte ranges).
 - Component mismatch — reconfigure dataset or use matching snapshot.
 
 ### Fatal Errors
@@ -284,16 +284,16 @@ ListDatasets(ctx, opts)
 
 ### GetManifest with Invalid Schema
 ```
-GetManifest(ctx, dataset, segment)
+GetManifest(ctx, dataset, ref)
   → store.Get(manifestPath)
   → json.Decode() succeeds
   → ValidateManifest() fails (missing SchemaName)
   → return nil, ManifestValidationError{Field: "SchemaName", ...}
 ```
 
-### ListSegments with Corrupt Manifest
+### ListManifests with Corrupt Manifest
 ```
-ListSegments(ctx, dataset, partition, opts)
+ListManifests(ctx, dataset, partition, opts)
   → for each manifest path:
       → loadManifest(path)
       → ValidateManifest() fails

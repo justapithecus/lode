@@ -43,9 +43,9 @@ ds, _ := lode.NewDataset(
 )
 ```
 
-### Reader
+### DatasetReader
 
-`NewReader(storeFactory, opts...)` creates a read facade.
+`NewDatasetReader(storeFactory, opts...)` creates a read facade.
 
 Default behavior:
 - Layout: DefaultLayout
@@ -53,11 +53,11 @@ Default behavior:
 Example:
 <!-- illustrative -->
 ```go
-reader, _ := lode.NewReader(
+reader, _ := lode.NewDatasetReader(
     lode.NewFSFactory("/data"),
 )
 // Or with Hive layout (preferred for partitioned data):
-reader, _ := lode.NewReader(
+reader, _ := lode.NewDatasetReader(
     lode.NewFSFactory("/data"),
     lode.WithHiveLayout("day"),
 )
@@ -81,10 +81,10 @@ vol, _ := lode.NewVolume(
 )
 
 // Stage a byte range
-seg, _ := vol.StageWriteAt(ctx, 0, bytes.NewReader(chunk))
+blk, _ := vol.StageWriteAt(ctx, 0, bytes.NewReader(chunk))
 
-// Commit staged segments into an immutable snapshot
-snapshot, _ := vol.Commit(ctx, []lode.SegmentRef{seg}, lode.Metadata{"source": "peer-1"})
+// Commit staged blocks into an immutable snapshot
+snapshot, _ := vol.Commit(ctx, []lode.BlockRef{blk}, lode.Metadata{"source": "peer-1"})
 
 // Read committed range
 data, _ := vol.ReadAt(ctx, snapshot.ID, 0, int64(len(chunk)))
@@ -97,7 +97,7 @@ Volume uses a fixed internal storage layout (`volumes/<id>/...`). The
 `Layout` abstraction is Dataset-specific and does not apply to Volume.
 
 **Volume options:**
-- `WithVolumeChecksum(c)` — opt-in integrity checksums on staged segments
+- `WithVolumeChecksum(c)` — opt-in integrity checksums on staged blocks
 
 *Contract reference: [`CONTRACT_VOLUME.md`](docs/contracts/CONTRACT_VOLUME.md)*
 
@@ -113,7 +113,7 @@ not apply to the target (dataset vs reader) returns an error.
 
 ### Option Applicability Matrix
 
-| Option | Dataset | Reader | Notes |
+| Option | Dataset | DatasetReader | Notes |
 |--------|:-------:|:------:|-------|
 | `WithHiveLayout(keys...)` | ✅ | ✅ | Preferred for Hive layout |
 | `WithLayout(layout)` | ✅ | ✅ | For any layout |
@@ -121,7 +121,7 @@ not apply to the target (dataset vs reader) returns an error.
 | `WithCodec(c)` | ✅ | ❌ | Record encoding |
 | `WithChecksum(c)` | ✅ | ❌ | File checksums |
 
-Passing a dataset-only option to `NewReader` returns an error at construction time.
+Passing a dataset-only option to `NewDatasetReader` returns an error at construction time.
 
 *Contract reference: [`CONTRACT_WRITE_API.md`](docs/contracts/CONTRACT_WRITE_API.md), [`CONTRACT_READ_API.md`](docs/contracts/CONTRACT_READ_API.md)*
 
@@ -167,7 +167,7 @@ construction.
 **Range read support:**
 - `Store.ReadRange(ctx, path, offset, length)` - Read byte range from object
 - `Store.ReaderAt(ctx, path)` - Get `io.ReaderAt` for random access
-- `Reader.ReaderAt(ctx, obj)` - Get `io.ReaderAt` for data object
+- `DatasetReader.ReaderAt(ctx, obj)` - Get `io.ReaderAt` for data object
 
 Range reads enable efficient access to columnar formats (Parquet footers),
 block-indexed logs, and partial artifact previews.
@@ -528,20 +528,20 @@ if errors.Is(err, lode.ErrNoSnapshots) {
 
 | Sentinel | Meaning | Typical Source |
 |----------|---------|----------------|
-| `ErrNotFound` | Object/path does not exist | Storage, Reader |
+| `ErrNotFound` | Object/path does not exist | Storage, DatasetReader |
 | `ErrNoSnapshots` | Dataset or Volume has no committed snapshots | Dataset, Volume |
-| `ErrNoManifests` | Storage has objects but no valid manifests | Reader |
+| `ErrNoManifests` | Storage has objects but no valid manifests | DatasetReader |
 | `ErrPathExists` | Write to existing path (immutability violation) | Storage |
 | `ErrInvalidPath` | Path escapes root or has invalid parameters | Storage |
-| `ErrDatasetsNotModeled` | Layout doesn't support dataset enumeration | Reader |
-| `ErrManifestInvalid` | Manifest fails validation | Reader |
+| `ErrDatasetsNotModeled` | Layout doesn't support dataset enumeration | DatasetReader |
+| `ErrManifestInvalid` | Manifest fails validation | DatasetReader |
 | `ErrCodecConfigured` | StreamWrite called with codec configured | Dataset |
 | `ErrCodecNotStreamable` | StreamWriteRecords with non-streaming codec | Dataset |
 | `ErrNilIterator` | Nil iterator passed to StreamWriteRecords | Dataset |
 | `ErrPartitioningNotSupported` | StreamWriteRecords with partitioning | Dataset |
 | `ErrRangeReadNotSupported` | Store doesn't support range reads | Storage |
 | `ErrRangeMissing` | Volume ReadAt range not fully committed | Volume |
-| `ErrOverlappingSegments` | Committed segments overlap in cumulative manifest | Volume |
+| `ErrOverlappingBlocks` | Committed blocks overlap in cumulative manifest | Volume |
 | `ErrSchemaViolation` | Record doesn't conform to Parquet schema | Parquet Codec |
 | `ErrInvalidFormat` | Malformed or corrupted Parquet file | Parquet Codec |
 

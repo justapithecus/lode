@@ -19,7 +19,7 @@ Layout is a **Dataset-specific abstraction**. It does not apply to Volume.
 
 Volume uses a fixed internal path scheme defined in `CONTRACT_VOLUME.md`.
 The Layout interface, its implementations, and all configuration options
-(`WithLayout`, `WithHiveLayout`) are scoped exclusively to Dataset and Reader.
+(`WithLayout`, `WithHiveLayout`) are scoped exclusively to Dataset and DatasetReader.
 
 ---
 
