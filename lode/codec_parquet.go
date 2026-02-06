@@ -87,6 +87,10 @@ type parquetCodec struct {
 
 // validateSchema validates a ParquetSchema and builds a field lookup map.
 // Returns an error if the schema contains invalid types, empty names, or duplicates.
+//
+// Contract: On success, the returned map contains an entry for every field in
+// schema.Fields. This guarantees that all fieldOrder entries (derived from
+// schema.Fields) will be present in fieldsByName.
 func validateSchema(schema ParquetSchema) (map[string]ParquetField, error) {
 	fieldsByName := make(map[string]ParquetField, len(schema.Fields))
 	for _, field := range schema.Fields {
@@ -242,8 +246,7 @@ func (c *parquetCodec) getCompressionOption() parquet.WriterOption {
 }
 
 // getFieldByName returns the ParquetField for a given field name.
-// Returns zero-value ParquetField if name is not found; schema validation
-// during construction guarantees all fieldOrder entries exist in the map.
+// Schema validation guarantees presence; missing key returns zero value (programmer error).
 func (c *parquetCodec) getFieldByName(name string) ParquetField {
 	return c.fieldsByName[name]
 }
