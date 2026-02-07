@@ -10,7 +10,7 @@ Stability is proven by **usage and time**, not design review.
 ## Gate Rule
 
 - Every criterion below must be checked off with recorded evidence.
-- Evidence must reference a real downstream project, real data, and a real observer.
+- Evidence must reference a real downstream project (or redacted alias), real data, and a real observer.
 - No criterion may be waived — if it cannot be met, it must be renegotiated and this document updated.
 - The v1.0 tag is blocked until all criteria pass.
 
@@ -20,6 +20,13 @@ Stability is proven by **usage and time**, not design review.
 
 Each downstream project that integrates Lode gets a subsection here.
 Use the template to add new projects as they begin integration.
+
+**Privacy rule:** Only public projects are listed by name. Private projects
+use a redacted alias (e.g. `private-A`, `private-B`) and describe their
+usage profile in backend-agnostic terms — no internal project names,
+repo URLs, or domain-specific details. Evidence summaries and issue
+references must not leak private context; if a linked issue lives in a
+private tracker, reference it as `(private)` instead of by number.
 
 ### quarry
 
@@ -37,13 +44,14 @@ Use the template to add new projects as they begin integration.
 | API friction (none = pass) | | | |
 
 <!--
-### <project-name>
+### <project-name or redacted alias>
 
 - **Integration date:** TBD
 - **Contact:** TBD
 - **Usage profile:** Dataset / Volume / Both
 - **Storage backend:** <backend>
 - **Status:** Not started
+- **Visibility:** Public / Private (if private, use alias — see privacy rule above)
 
 | Criterion | Validated | Date | Notes |
 |-----------|:---------:|------|-------|
