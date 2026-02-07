@@ -305,9 +305,15 @@ volumes/<volume_id>/data/<offset>-<length>.bin
 
 - Dataset streaming: atomic construction of complete objects
 - Volume streaming: incremental commitment of partial truth
+- Neither is a wrapper or special case of the other
 
 If a workflow requires sparse, resumable, out-of-order, or range-verified truth,
 it belongs to `Volume`, not `Dataset`.
+
+Design discipline:
+- Adapters remain minimal; lifecycle semantics stay in Lode core.
+- Runtime-aware policy (scheduling, peer management, execution strategy)
+  belongs in consuming systems, not in Lode.
 
 ---
 
