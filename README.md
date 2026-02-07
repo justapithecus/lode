@@ -309,7 +309,7 @@ Each example is self-contained and runnable. See the example source for detailed
 
 ## Status
 
-Lode is at **v0.6.0** and under active development.
+Lode is at **v0.7.0** and under active development.
 APIs are stabilizing; some changes are possible before v1.0.
 
 If you are evaluating Lode, focus on:
