@@ -27,7 +27,7 @@ It is authoritative for any `Dataset` implementation.
 ### Required behavior
 
 - `Write(ctx, data, metadata)` MUST create a new snapshot on success.
-- `metadata` MUST be non-nil; nil MUST return an error.
+- `nil` metadata MUST be coalesced to empty (`Metadata{}`).
 - Empty metadata is valid and MUST be persisted explicitly.
 - The new snapshot MUST reference the previous snapshot as its parent (if any).
 - Writes MUST NOT mutate existing snapshots or manifests.
@@ -40,7 +40,7 @@ It is authoritative for any `Dataset` implementation.
 
 ### StreamWrite Semantics
 
-- `StreamWrite(ctx, metadata)` MUST return an error if metadata is nil.
+- `StreamWrite(ctx, metadata)` MUST coalesce `nil` metadata to empty (`Metadata{}`).
 - `StreamWrite` MUST return a `StreamWriter` for a single binary data unit.
 - `StreamWriter.Commit(ctx)` MUST write the manifest and return the new snapshot.
 - A snapshot MUST NOT be visible before `Commit` writes the manifest.
@@ -55,7 +55,7 @@ It is authoritative for any `Dataset` implementation.
 
 ### StreamWriteRecords Semantics
 
-- `StreamWriteRecords(ctx, records, metadata)` MUST return an error if metadata is nil.
+- `StreamWriteRecords(ctx, records, metadata)` MUST coalesce `nil` metadata to empty (`Metadata{}`).
 - `StreamWriteRecords` MUST return an error if records iterator is nil.
 - `StreamWriteRecords` MUST consume records via a pull-based iterator.
 - `StreamWriteRecords` MUST return an error if the configured codec does not support

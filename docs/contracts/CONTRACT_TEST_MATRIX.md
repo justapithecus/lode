@@ -64,7 +64,7 @@ Gaps are tracked with codes indicating category and priority:
 
 **Metadata Rules**: All covered ✅
 
-- nil metadata rejected: `TestDataset_Write_NilMetadata_ReturnsError`, `TestDataset_StreamWrite_NilMetadata_ReturnsError`, `TestDataset_StreamWriteRecords_NilMetadata_ReturnsError`
+- nil metadata coalesced: `TestDataset_Write_NilMetadata_CoalescesToEmpty`, `TestDataset_StreamWrite_NilMetadata_CoalescesToEmpty`, `TestDataset_StreamWriteRecords_NilMetadata_CoalescesToEmpty`
 - Empty metadata valid: `TestDataset_Write_EmptyMetadata_ValidAndPersisted`, etc.
 
 **Immutability**: All covered ✅
@@ -81,7 +81,7 @@ Gaps are tracked with codes indicating category and priority:
 | Requirement | Test |
 |-------------|------|
 | Creates snapshot | Multiple write tests |
-| nil metadata error | `TestDataset_Write_NilMetadata_ReturnsError` |
+| nil metadata coalesced | `TestDataset_Write_NilMetadata_CoalescesToEmpty` |
 | Parent snapshot linked | `TestDataset_StreamWrite_ParentSnapshotLinked` |
 | Raw blob RowCount=1 | `TestDataset_StreamWrite_Success` |
 
@@ -89,7 +89,7 @@ Gaps are tracked with codes indicating category and priority:
 
 | Requirement | Test |
 |-------------|------|
-| nil metadata error | `TestDataset_StreamWrite_NilMetadata_ReturnsError` |
+| nil metadata coalesced | `TestDataset_StreamWrite_NilMetadata_CoalescesToEmpty` |
 | Commit writes manifest | `TestDataset_StreamWrite_Success` |
 | Snapshot invisible before Commit | `TestDataset_StreamWrite_NotVisibleBeforeCommit` |
 | Abort → no manifest | `TestDataset_StreamWrite_Abort_NoManifest` |
@@ -106,7 +106,7 @@ Gaps are tracked with codes indicating category and priority:
 
 | Requirement | Test |
 |-------------|------|
-| nil metadata error | `TestDataset_StreamWriteRecords_NilMetadata_ReturnsError` |
+| nil metadata coalesced | `TestDataset_StreamWriteRecords_NilMetadata_CoalescesToEmpty` |
 | nil iterator error | `TestDataset_StreamWriteRecords_NilIterator_ReturnsError` |
 | Non-streaming codec error | `TestDataset_StreamWriteRecords_NonStreamingCodec_ReturnsError` |
 | Partitioning error | `TestDataset_StreamWriteRecords_WithPartitioner_ReturnsError` |
@@ -276,7 +276,7 @@ All error sentinels covered ✅
 |-------------|------|
 | End-to-end round-trip | `TestVolume_StageCommitReadAt_EndToEnd` |
 | Cumulative manifest | `TestVolume_CumulativeManifest` |
-| nil metadata rejected | `TestVolume_Commit_NilMetadata_ReturnsError` |
+| nil metadata coalesced | `TestVolume_Commit_NilMetadata_CoalescesToEmpty` |
 | Empty metadata accepted | `TestVolume_Commit_EmptyMetadata_Succeeds` |
 | Empty blocks rejected | `TestVolume_Commit_EmptyBlocks_ReturnsError` |
 | Empty block path rejected | `TestVolume_Commit_EmptyBlockPath_ReturnsError` |

@@ -776,18 +776,21 @@ func TestDataset_Snapshot_EmptyDataset_ReturnsErrNotFound(t *testing.T) {
 // Write validation tests
 // -----------------------------------------------------------------------------
 
-func TestDataset_Write_NilMetadata_ReturnsError(t *testing.T) {
+func TestDataset_Write_NilMetadata_CoalescesToEmpty(t *testing.T) {
 	ds, err := NewDataset("test-ds", NewMemoryFactory())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = ds.Write(t.Context(), []any{[]byte("data")}, nil)
-	if err == nil {
-		t.Fatal("expected error for nil metadata, got nil")
+	snap, err := ds.Write(t.Context(), []any{[]byte("data")}, nil)
+	if err != nil {
+		t.Fatalf("expected nil metadata to succeed, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "metadata must be non-nil") {
-		t.Errorf("expected metadata error, got: %v", err)
+	if snap.Manifest.Metadata == nil {
+		t.Fatal("expected non-nil metadata in manifest after nil coalescing")
+	}
+	if len(snap.Manifest.Metadata) != 0 {
+		t.Errorf("expected empty metadata, got %v", snap.Manifest.Metadata)
 	}
 }
 
@@ -961,18 +964,26 @@ func TestDataset_StreamWrite_CloseWithoutCommit_BehavesAsAbort(t *testing.T) {
 	}
 }
 
-func TestDataset_StreamWrite_NilMetadata_ReturnsError(t *testing.T) {
+func TestDataset_StreamWrite_NilMetadata_CoalescesToEmpty(t *testing.T) {
 	ds, err := NewDataset("test-ds", NewMemoryFactory())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = ds.StreamWrite(t.Context(), nil)
-	if err == nil {
-		t.Fatal("expected error for nil metadata, got nil")
+	sw, err := ds.StreamWrite(t.Context(), nil)
+	if err != nil {
+		t.Fatalf("expected nil metadata to succeed, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "metadata must be non-nil") {
-		t.Errorf("expected metadata error, got: %v", err)
+	_, _ = sw.Write([]byte("data"))
+	snap, err := sw.Commit(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Manifest.Metadata == nil {
+		t.Fatal("expected non-nil metadata in manifest after nil coalescing")
+	}
+	if len(snap.Manifest.Metadata) != 0 {
+		t.Errorf("expected empty metadata, got %v", snap.Manifest.Metadata)
 	}
 }
 
@@ -1426,19 +1437,22 @@ func TestDataset_StreamWriteRecords_NoCodec_ReturnsError(t *testing.T) {
 	}
 }
 
-func TestDataset_StreamWriteRecords_NilMetadata_ReturnsError(t *testing.T) {
+func TestDataset_StreamWriteRecords_NilMetadata_CoalescesToEmpty(t *testing.T) {
 	ds, err := NewDataset("test-ds", NewMemoryFactory(), WithCodec(NewJSONLCodec()))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	iter := &sliceIterator{records: []any{D{"id": "1"}}}
-	_, err = ds.StreamWriteRecords(t.Context(), iter, nil)
-	if err == nil {
-		t.Fatal("expected error for nil metadata, got nil")
+	snap, err := ds.StreamWriteRecords(t.Context(), iter, nil)
+	if err != nil {
+		t.Fatalf("expected nil metadata to succeed, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "metadata must be non-nil") {
-		t.Errorf("expected metadata error, got: %v", err)
+	if snap.Manifest.Metadata == nil {
+		t.Fatal("expected non-nil metadata in manifest after nil coalescing")
+	}
+	if len(snap.Manifest.Metadata) != 0 {
+		t.Errorf("expected empty metadata, got %v", snap.Manifest.Metadata)
 	}
 }
 

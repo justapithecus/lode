@@ -84,10 +84,10 @@ Manifests are immutable once written.
 ## Metadata Rules
 
 - Metadata MUST be explicit on every snapshot.
-- `nil` metadata is invalid and MUST error.
+- `nil` metadata is coalesced to empty (`{}`) at the API boundary.
 - Empty metadata (`{}`) is valid and MUST be persisted as an explicit object.
 - Metadata values MUST be JSON-serializable.
-- Metadata MUST never be inferred or defaulted.
+- Manifests always contain a non-nil metadata map.
 
 ---
 

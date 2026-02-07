@@ -129,7 +129,7 @@ func (v *volume) StageWriteAt(ctx context.Context, offset int64, r io.Reader) (B
 // Commit records the provided blocks into a new immutable snapshot.
 func (v *volume) Commit(ctx context.Context, blocks []BlockRef, metadata Metadata) (*VolumeSnapshot, error) {
 	if metadata == nil {
-		return nil, fmt.Errorf("lode: metadata must not be nil (use empty Metadata{} for no metadata)")
+		metadata = Metadata{}
 	}
 	if len(blocks) == 0 {
 		return nil, fmt.Errorf("lode: commit must include at least one new block")
