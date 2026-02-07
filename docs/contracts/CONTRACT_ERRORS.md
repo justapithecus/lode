@@ -79,6 +79,7 @@ These indicate a manifest fails structural or semantic validation.
 - `ParentSnapshotID`: May be empty for first snapshot
 - `MinTimestamp`, `MaxTimestamp`: May be nil when not applicable
 - `Checksum` in `FileRef`: May be empty
+- `Stats` in `FileRef`: May be nil (omitted when codec does not report statistics)
 
 **File Validation**:
 - Each `FileRef.Path` must be non-empty

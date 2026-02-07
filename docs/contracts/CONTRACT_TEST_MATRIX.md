@@ -58,10 +58,13 @@ Gaps are tracked with codes indicating category and priority:
 | ParentSnapshotID | First snapshot tests (no parent) |
 | MinTimestamp/MaxTimestamp | `TestDataset_Write_NonTimestampedRecords_OmitsMinMax` |
 | Checksum | `TestDataset_Write_WithoutChecksum_OmitsChecksum` |
+| FileRef.Stats (present) | `TestDataset_Write_ParquetCodec_StatsPopulated` |
+| FileRef.Stats (absent) | `TestDataset_Write_JSONLCodec_StatsNil`, `TestDataset_Write_RawBlob_StatsNil` |
+| FileRef.Stats (JSON round-trip) | `TestFileRef_Stats_JSONRoundTrip`, `TestFileRef_Stats_BackwardCompat`, `TestFileRef_Stats_OmittedWhenNil` |
 
 **Metadata Rules**: All covered ✅
 
-- nil metadata rejected: `TestDataset_Write_NilMetadata_ReturnsError`, `TestDataset_StreamWrite_NilMetadata_ReturnsError`, `TestDataset_StreamWriteRecords_NilMetadata_ReturnsError`
+- nil metadata coalesced: `TestDataset_Write_NilMetadata_CoalescesToEmpty`, `TestDataset_StreamWrite_NilMetadata_CoalescesToEmpty`, `TestDataset_StreamWriteRecords_NilMetadata_CoalescesToEmpty`
 - Empty metadata valid: `TestDataset_Write_EmptyMetadata_ValidAndPersisted`, etc.
 
 **Immutability**: All covered ✅
@@ -78,7 +81,7 @@ Gaps are tracked with codes indicating category and priority:
 | Requirement | Test |
 |-------------|------|
 | Creates snapshot | Multiple write tests |
-| nil metadata error | `TestDataset_Write_NilMetadata_ReturnsError` |
+| nil metadata coalesced | `TestDataset_Write_NilMetadata_CoalescesToEmpty` |
 | Parent snapshot linked | `TestDataset_StreamWrite_ParentSnapshotLinked` |
 | Raw blob RowCount=1 | `TestDataset_StreamWrite_Success` |
 
@@ -86,7 +89,7 @@ Gaps are tracked with codes indicating category and priority:
 
 | Requirement | Test |
 |-------------|------|
-| nil metadata error | `TestDataset_StreamWrite_NilMetadata_ReturnsError` |
+| nil metadata coalesced | `TestDataset_StreamWrite_NilMetadata_CoalescesToEmpty` |
 | Commit writes manifest | `TestDataset_StreamWrite_Success` |
 | Snapshot invisible before Commit | `TestDataset_StreamWrite_NotVisibleBeforeCommit` |
 | Abort → no manifest | `TestDataset_StreamWrite_Abort_NoManifest` |
@@ -103,7 +106,7 @@ Gaps are tracked with codes indicating category and priority:
 
 | Requirement | Test |
 |-------------|------|
-| nil metadata error | `TestDataset_StreamWriteRecords_NilMetadata_ReturnsError` |
+| nil metadata coalesced | `TestDataset_StreamWriteRecords_NilMetadata_CoalescesToEmpty` |
 | nil iterator error | `TestDataset_StreamWriteRecords_NilIterator_ReturnsError` |
 | Non-streaming codec error | `TestDataset_StreamWriteRecords_NonStreamingCodec_ReturnsError` |
 | Partitioning error | `TestDataset_StreamWriteRecords_WithPartitioner_ReturnsError` |
@@ -119,6 +122,22 @@ Gaps are tracked with codes indicating category and priority:
 | Timestamped interface | `TestDataset_Write_TimestampedRecords_ComputesMinMax` |
 | Non-timestamped omits | `TestDataset_Write_NonTimestampedRecords_OmitsMinMax` |
 | Raw blob omits | `TestDataset_Write_RawBlob_OmitsTimestamps` |
+
+**Per-File Statistics**: All covered ✅
+
+| Requirement | Test |
+|-------------|------|
+| StatisticalCodec populates stats | `TestDataset_Write_ParquetCodec_StatsPopulated` |
+| Non-statistical codec → nil stats | `TestDataset_Write_JSONLCodec_StatsNil` |
+| Raw blob → nil stats | `TestDataset_Write_RawBlob_StatsNil` |
+| StreamWriteRecords → nil stats (JSONL) | `TestDataset_StreamWriteRecords_StatsNil` |
+| Parquet basic types stats | `TestParquetCodec_FileStats_BasicTypes` |
+| Parquet nullable field stats | `TestParquetCodec_FileStats_NullableFields` |
+| Parquet all-null column stats | `TestParquetCodec_FileStats_AllNulls` |
+| Parquet single record stats | `TestParquetCodec_FileStats_SingleRecord` |
+| Parquet bool/bytes no min/max | `TestParquetCodec_FileStats_BoolAndBytes_NoMinMax` |
+| Parquet timestamp stats | `TestParquetCodec_FileStats_Timestamps` |
+| Parquet empty records stats | `TestParquetCodec_FileStats_EmptyRecords` |
 
 **Empty Dataset**: All covered ✅
 
@@ -257,7 +276,7 @@ All error sentinels covered ✅
 |-------------|------|
 | End-to-end round-trip | `TestVolume_StageCommitReadAt_EndToEnd` |
 | Cumulative manifest | `TestVolume_CumulativeManifest` |
-| nil metadata rejected | `TestVolume_Commit_NilMetadata_ReturnsError` |
+| nil metadata coalesced | `TestVolume_Commit_NilMetadata_CoalescesToEmpty` |
 | Empty metadata accepted | `TestVolume_Commit_EmptyMetadata_Succeeds` |
 | Empty blocks rejected | `TestVolume_Commit_EmptyBlocks_ReturnsError` |
 | Empty block path rejected | `TestVolume_Commit_EmptyBlockPath_ReturnsError` |

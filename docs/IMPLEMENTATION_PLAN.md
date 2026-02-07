@@ -203,7 +203,7 @@ Explore new adapters or codecs without expanding the public API.
 - [x] CONTRACT_STORAGE.md compliance verified
 - [x] Zstd compressor added as an additive compression option
 - [x] Parquet codec implemented
-- [ ] Manifest stats extensions finalized (additive)
+- [x] Manifest stats extensions finalized (additive)
 
 ### S3 Adapter
 
@@ -262,7 +262,7 @@ Any change that affects contract behavior must:
 ### Priority Track B — Format and Ecosystem
 
 - [x] Prioritize Parquet codec delivery
-- [ ] Define additive manifest stats needed for Parquet-oriented pruning workflows
+- [x] Define additive manifest stats needed for Parquet-oriented pruning workflows
 - [x] Add/refresh examples for columnar and streaming workflows
 
 ### Priority Track C — Zarr/Xarray Direction

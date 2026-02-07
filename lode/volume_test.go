@@ -270,7 +270,7 @@ func TestVolume_ReadAt_MissingRange_ReturnsErrRangeMissing(t *testing.T) {
 	}
 }
 
-func TestVolume_Commit_NilMetadata_ReturnsError(t *testing.T) {
+func TestVolume_Commit_NilMetadata_CoalescesToEmpty(t *testing.T) {
 	vol, err := NewVolume("test-vol", NewMemoryFactory(), 100)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -282,9 +282,15 @@ func TestVolume_Commit_NilMetadata_ReturnsError(t *testing.T) {
 		t.Fatalf("StageWriteAt failed: %v", err)
 	}
 
-	_, err = vol.Commit(ctx, []BlockRef{blk}, nil)
-	if err == nil {
-		t.Fatal("expected error for nil metadata")
+	snap, err := vol.Commit(ctx, []BlockRef{blk}, nil)
+	if err != nil {
+		t.Fatalf("expected nil metadata to succeed, got: %v", err)
+	}
+	if snap.Manifest.Metadata == nil {
+		t.Fatal("expected non-nil metadata in manifest after nil coalescing")
+	}
+	if len(snap.Manifest.Metadata) != 0 {
+		t.Errorf("expected empty metadata, got %v", snap.Manifest.Metadata)
 	}
 }
 

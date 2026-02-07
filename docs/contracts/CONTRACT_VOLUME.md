@@ -237,7 +237,7 @@ Volume accepts a minimal set of options:
 - Missing committed range MUST return `ErrRangeMissing`.
 - Overlapping blocks at Commit MUST return `ErrOverlappingBlocks`.
 - Empty block list at Commit MUST return an error.
-- Nil metadata at Commit MUST return an error.
+- `nil` metadata at Commit MUST be coalesced to empty (`Metadata{}`).
 - Range reads MUST NOT return partial data without error.
 - `Latest` on empty volume MUST return `ErrNoSnapshots`.
 - `Snapshot` for unknown ID MUST return `ErrNotFound`.

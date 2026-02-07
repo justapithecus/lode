@@ -253,7 +253,7 @@ func (d *dataset) ID() DatasetID {
 
 func (d *dataset) Write(ctx context.Context, data []any, metadata Metadata) (*DatasetSnapshot, error) {
 	if metadata == nil {
-		return nil, errors.New("lode: metadata must be non-nil (use empty map {} for no metadata)")
+		metadata = Metadata{}
 	}
 
 	var parentID DatasetSnapshotID
@@ -449,7 +449,7 @@ func (d *dataset) Latest(ctx context.Context) (*DatasetSnapshot, error) {
 
 func (d *dataset) StreamWrite(ctx context.Context, metadata Metadata) (StreamWriter, error) {
 	if metadata == nil {
-		return nil, errors.New("lode: metadata must be non-nil (use empty map {} for no metadata)")
+		metadata = Metadata{}
 	}
 	if d.codec != nil {
 		return nil, ErrCodecConfigured
@@ -513,7 +513,7 @@ func (d *dataset) StreamWrite(ctx context.Context, metadata Metadata) (StreamWri
 
 func (d *dataset) StreamWriteRecords(ctx context.Context, records RecordIterator, metadata Metadata) (*DatasetSnapshot, error) {
 	if metadata == nil {
-		return nil, errors.New("lode: metadata must be non-nil (use empty map {} for no metadata)")
+		metadata = Metadata{}
 	}
 	if records == nil {
 		return nil, ErrNilIterator
