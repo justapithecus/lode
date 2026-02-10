@@ -40,7 +40,7 @@ task s3:down      # stop services
 - Use `errors.Is()` for error comparisons, not `==`
 - Prefer `any` over `interface{}`
 - Prefer early returns over nesting
-- See `AGENTS.md` for full style and constraint guidelines
+- See `AGENTS.md` for AI agent guardrails
 
 ## Commits
 
@@ -67,7 +67,7 @@ refactor(layout): ♻️ extract hive partition logic
 
 ## Architecture
 
-- `AGENTS.md` — development guardrails
+- `AGENTS.md` — AI agent guardrails
 - `docs/ARCH_INDEX.md` — subsystem navigation
 - `docs/contracts/CONTRACT_*.md` — normative behavior contracts
 - `PUBLIC_API.md` — public API spec
