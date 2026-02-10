@@ -319,6 +319,7 @@ If you are evaluating Lode, focus on:
 
 Usage overview: `PUBLIC_API.md`
 Concrete usage: `examples/`
+Benchmarks: [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)
 Implementation milestones: `docs/IMPLEMENTATION_PLAN.md`
 
 ---
