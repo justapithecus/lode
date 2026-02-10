@@ -2,6 +2,28 @@
 
 Central index of all Lode benchmarks.
 
+## Results
+
+Collected on AMD Ryzen 9 5900XT (linux/amd64), Go 1.25, Docker-local S3 backends.
+
+### In-memory
+
+| Benchmark | ns/op | B/op | allocs/op |
+|-----------|------:|-----:|----------:|
+| `BenchmarkDataset_SequentialWrites` | 142,114 | 98,287 | 680 |
+| `BenchmarkDataset_SequentialWrites_StoreCallCount` | 144,832 | 100,218 | 687 |
+
+### S3 (Docker-local)
+
+| Benchmark | ns/op | B/op | allocs/op |
+|-----------|------:|-----:|----------:|
+| `BenchmarkS3_WriteRoundTrip/LocalStack` | 5,572,537 | 367,305 | 2,969 |
+| `BenchmarkS3_WriteRoundTrip/MinIO` | 11,680,989 | 371,071 | 3,040 |
+
+> **Note:** S3 numbers reflect Docker-local round-trip latency, not production S3.
+> In-memory benchmarks inject 10 µs simulated store latency.
+> These results are informational — use them for relative comparison, not absolute targets.
+
 ## Benchmark inventory
 
 | Benchmark | Location | Backend | Status |
