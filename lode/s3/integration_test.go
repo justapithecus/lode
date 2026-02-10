@@ -511,7 +511,7 @@ func TestLocalStack_StreamWriteRecords_ContextTimeout_NoSnapshot(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Expected snapshot after successful write: %v", err)
 		}
-		t.Logf("Write completed with %d rows (timeout didn't trigger)", snap.RowCount)
+		t.Logf("Write completed with %d rows (timeout didn't trigger)", snap.Manifest.RowCount)
 	} else {
 		// Timeout or other error - verify no partial snapshot
 		_, err := ds.Latest(freshCtx)
