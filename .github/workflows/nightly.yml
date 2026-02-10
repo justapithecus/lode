@@ -16,3 +16,21 @@ jobs:
         uses: jdx/mise-action@v2
       - name: "🧪 Race Tests"
         run: task test:race
+
+  integration:
+    name: "🔌 Integration Tests"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "📥 Checkout"
+        uses: actions/checkout@v4
+      - name: "🧰 Setup"
+        uses: jdx/mise-action@v2
+      - name: "🐳 Start S3 Services"
+        run: task s3:up
+      - name: "🧪 S3 Integration Tests"
+        run: task s3:test
+      - name: "📊 S3 Benchmarks"
+        run: task bench
+      - name: "🐳 Stop S3 Services"
+        if: always()
+        run: task s3:down
