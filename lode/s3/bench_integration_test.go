@@ -1,11 +1,8 @@
-//go:build integration
-
 package s3
 
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -18,8 +15,8 @@ import (
 // skipBenchIfNoS3 skips benchmark execution when S3 test services are unavailable.
 func skipBenchIfNoS3(b *testing.B) {
 	b.Helper()
-	if os.Getenv("LODE_S3_TESTS") != "1" {
-		b.Skip("LODE_S3_TESTS=1 not set; skipping S3 benchmarks")
+	if !*flagIntegration {
+		b.Skip("skipping S3 benchmark; use -integration to enable")
 	}
 }
 

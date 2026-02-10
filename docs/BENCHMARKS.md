@@ -34,9 +34,9 @@ In-memory benchmarks always run. S3 benchmarks require services to be up first.
 ### Manual invocation
 
 ```bash
-# All benchmarks (with S3 services running)
-LODE_S3_TESTS=1 go test -bench=. -benchmem -tags=integration -run=^$ ./...
-
 # In-memory only
 go test -bench=. -benchmem -run=^$ ./lode/...
+
+# S3 benchmarks (with services running)
+go test -bench=. -benchmem -run=^$ ./lode/s3/... -integration
 ```

@@ -1081,4 +1081,3 @@ func (m *racingMockS3Client) CompleteMultipartUpload(ctx context.Context, params
 	}
 	return m.MockS3Client.CompleteMultipartUpload(ctx, params, opts...)
 }
-
