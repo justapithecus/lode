@@ -11,6 +11,7 @@ tasks:
     desc: Run linters (no fixes)
     cmds:
       - golangci-lint run ./...
+      - yamllint -s .
 
   test:
     desc: Run tests
@@ -52,12 +53,12 @@ tasks:
     cmds:
       - docker compose -f lode/s3/docker-compose.yaml down
 
-  s3:test:
-    desc: Run S3 integration tests (requires s3:up first)
+  integration:
+    desc: Run integration tests (requires s3:up first)
     env:
       LODE_S3_TESTS: "1"
     cmds:
-      - go test -v -tags=integration ./lode/s3/...
+      - go test -v -tags=integration ./...
 
   bench:
     desc: Run all benchmarks (start s3:up first for S3 benchmarks)

@@ -50,7 +50,7 @@ jobs:
           docker save $(docker compose -f lode/s3/docker-compose.yaml config --images) -o /tmp/docker-images/images.tar
 
       - name: 🧪 Integration Tests
-        run: task s3:test
+        run: task integration
 
       - name: 📊 Benchmarks
         run: task bench
