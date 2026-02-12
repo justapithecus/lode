@@ -171,19 +171,22 @@ func (v *volume) Commit(ctx context.Context, blocks []BlockRef, metadata Metadat
 	// Resolve parent via pointer for O(1), falling back to scan.
 	var parentID VolumeSnapshotID
 	var existingBlocks []BlockRef
+	parentResolved := false
+
 	latestID, pointerErr := v.readLatestPointer(ctx)
 	if pointerErr == nil {
 		snap, snapErr := v.Snapshot(ctx, latestID)
 		if snapErr == nil {
 			parentID = snap.ID
 			existingBlocks = snap.Manifest.Blocks
+			parentResolved = true
 		} else if !errors.Is(snapErr, ErrNotFound) {
 			return nil, fmt.Errorf("lode: failed to load snapshot from pointer: %w", snapErr)
 		}
-		// Pointer references nonexistent snapshot — treat as empty.
+		// Pointer references nonexistent snapshot — fall through to scan.
 	}
-	if pointerErr != nil {
-		// No pointer: fall back to scan for backward compat.
+	if !parentResolved {
+		// No pointer or stale pointer: fall back to scan for backward compat.
 		latest, scanErr := v.latestByScan(ctx)
 		if scanErr != nil && !errors.Is(scanErr, ErrNoSnapshots) {
 			return nil, fmt.Errorf("lode: failed to get latest snapshot: %w", scanErr)

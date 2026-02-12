@@ -258,10 +258,17 @@ func (d *dataset) ID() DatasetID {
 func (d *dataset) resolveParentID(ctx context.Context) (DatasetSnapshotID, error) {
 	id, err := d.readLatestPointer(ctx)
 	if err == nil {
-		return id, nil
+		// Verify the referenced snapshot exists (1 Exists call).
+		// A corrupt/stale pointer must not produce a nonexistent parent.
+		manifestPath := d.layout.manifestPath(d.id, id)
+		exists, existsErr := d.store.Exists(ctx, manifestPath)
+		if existsErr == nil && exists {
+			return id, nil
+		}
+		// Pointer is stale or corrupt — fall through to scan.
 	}
 
-	// Pointer missing: fall back to scan for backward compat.
+	// Pointer missing or stale: fall back to scan for backward compat.
 	latest, err := d.latestByScan(ctx)
 	if err != nil {
 		if errors.Is(err, ErrNoSnapshots) {

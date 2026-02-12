@@ -404,13 +404,12 @@ proportional to dataset/volume size on remote stores (S3/R2).
 | Unsorted overlap detection | `TestVolume_ValidateNoOverlaps_UnsortedInput` |
 | Unsorted overlap rejection | `TestVolume_ValidateNoOverlaps_UnsortedOverlap` |
 
-**Reader — Path-Only Listing**: 0 manifest Gets for listing operations.
+**Pointer Verification**: Corrupt/stale pointers fall back to scan.
 
 | Requirement | Test |
 |-------------|------|
-| ListManifests: 0 Get calls | `TestDatasetReader_ListManifests_NoGetCalls` |
-| ListPartitions: 0 Get calls | `TestDatasetReader_ListPartitions_NoGetCalls` |
-| Validation deferred to GetManifest | `TestDatasetReader_ListManifests_InvalidManifest_DeferredToGetManifest` |
+| Dataset: corrupt pointer → scan fallback on write | `TestDataset_Write_CorruptPointer_FallsBackToScan` |
+| Volume: stale pointer → scan fallback on commit | `TestVolume_Commit_StalePointer_FallsBackToScan` |
 
 **Benchmarks**:
 

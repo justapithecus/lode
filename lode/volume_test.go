@@ -1504,7 +1504,7 @@ func TestFindCoveringBlocks_BinarySearch(t *testing.T) {
 				{Offset: 10, Length: 10},
 			},
 			offset: 0, length: 30,
-			wantN:  3,
+			wantN: 3,
 		},
 	}
 
@@ -1623,6 +1623,55 @@ func TestMergeBlocks(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestVolume_Commit_StalePointer_FallsBackToScan verifies that a stale
+// latest pointer (referencing a nonexistent snapshot) causes Commit to
+// fall back to scan, preserving linear history.
+func TestVolume_Commit_StalePointer_FallsBackToScan(t *testing.T) {
+	mem := NewMemory()
+	vol, err := NewVolume("test-vol", NewMemoryFactoryFrom(mem), 1024*1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Stage and commit first block.
+	block1, err := vol.StageWriteAt(t.Context(), 0, bytes.NewReader([]byte("block-1-data")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap1, err := vol.Commit(t.Context(), []BlockRef{block1}, Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Corrupt the pointer to reference a nonexistent snapshot.
+	pointerPath := "volumes/test-vol/latest"
+	if err := mem.Delete(t.Context(), pointerPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.Put(t.Context(), pointerPath, bytes.NewReader([]byte("nonexistent-snap-id"))); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stage and commit second block — should succeed via scan fallback.
+	block2, err := vol.StageWriteAt(t.Context(), 100, bytes.NewReader([]byte("block-2-data")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap2, err := vol.Commit(t.Context(), []BlockRef{block2}, Metadata{})
+	if err != nil {
+		t.Fatalf("Commit with stale pointer should succeed: %v", err)
+	}
+
+	// Parent should be snap1 (from scan fallback), not the stale ID.
+	if snap2.Manifest.ParentSnapshotID != snap1.ID {
+		t.Errorf("expected parent %s (from scan), got %s", snap1.ID, snap2.Manifest.ParentSnapshotID)
+	}
+	// Cumulative blocks should include both.
+	if len(snap2.Manifest.Blocks) != 2 {
+		t.Errorf("expected 2 cumulative blocks, got %d", len(snap2.Manifest.Blocks))
 	}
 }
 

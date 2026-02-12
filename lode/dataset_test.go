@@ -1,6 +1,7 @@
 package lode
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -2487,18 +2488,18 @@ func TestDataset_LatestPointer_CorruptPointer(t *testing.T) {
 func TestDataset_LatestPointer_AllLayouts(t *testing.T) {
 	// Verify pointer paths for all three layouts.
 	tests := []struct {
-		name        string
-		layout      layout
+		name         string
+		layout       layout
 		expectedPath string
 	}{
 		{
-			name:        "default",
-			layout:      NewDefaultLayout(),
+			name:         "default",
+			layout:       NewDefaultLayout(),
 			expectedPath: "datasets/my-ds/latest",
 		},
 		{
-			name:        "flat",
-			layout:      NewFlatLayout(),
+			name:         "flat",
+			layout:       NewFlatLayout(),
 			expectedPath: "my-ds/latest",
 		},
 	}
@@ -2649,5 +2650,42 @@ func TestDataset_HiveLayout_BackwardCompat_FallbackScan(t *testing.T) {
 	}
 	if got.ID != snap.ID {
 		t.Fatalf("expected snapshot ID %s, got %s", snap.ID, got.ID)
+	}
+}
+
+// TestDataset_Write_CorruptPointer_FallsBackToScan verifies that a corrupt
+// latest pointer (referencing a nonexistent snapshot) falls through to scan
+// in resolveParentID, preventing broken linear history.
+func TestDataset_Write_CorruptPointer_FallsBackToScan(t *testing.T) {
+	mem := NewMemory()
+	ds, err := NewDataset("test-ds", NewMemoryFactoryFrom(mem), WithCodec(NewJSONLCodec()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write first snapshot.
+	snap1, err := ds.Write(t.Context(), R(D{"i": 1}), Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Corrupt the pointer to reference a nonexistent snapshot.
+	pointerPath := "datasets/test-ds/latest"
+	if err := mem.Delete(t.Context(), pointerPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.Put(t.Context(), pointerPath, bytes.NewReader([]byte("nonexistent-snap-id"))); err != nil {
+		t.Fatal(err)
+	}
+
+	// Second write should succeed — resolveParentID falls back to scan.
+	snap2, err := ds.Write(t.Context(), R(D{"i": 2}), Metadata{})
+	if err != nil {
+		t.Fatalf("Write with corrupt pointer should succeed: %v", err)
+	}
+
+	// Parent should be snap1 (from scan fallback), not the corrupt ID.
+	if snap2.Manifest.ParentSnapshotID != snap1.ID {
+		t.Errorf("expected parent %s (from scan), got %s", snap1.ID, snap2.Manifest.ParentSnapshotID)
 	}
 }
