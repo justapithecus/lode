@@ -107,36 +107,61 @@ func (r *reader) ListDatasets(ctx context.Context, opts DatasetListOptions) ([]D
 }
 
 func (r *reader) ListPartitions(ctx context.Context, dataset DatasetID, opts PartitionListOptions) ([]PartitionRef, error) {
-	refs, err := r.ListManifests(ctx, dataset, "", ManifestListOptions{})
+	// Single-pass: list paths, load each manifest once, extract partitions.
+	// Eliminates the double-deserialization of ListManifests + GetManifest (CX-3).
+	prefix := r.layout.segmentsPrefixForPartition(dataset, "")
+	paths, err := r.store.List(ctx, prefix)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(refs) == 0 {
-		return nil, nil
-	}
-
-	seen := make(map[string]bool)
+	seenSnap := make(map[DatasetSnapshotID]bool)
+	seenPart := make(map[string]bool)
 	var partitions []PartitionRef
+	hasAnyManifest := false
 
-	for _, ref := range refs {
-		manifest, err := r.GetManifest(ctx, dataset, ref)
+	for _, p := range paths {
+		if !r.layout.isManifest(p) {
+			continue
+		}
+		hasAnyManifest = true
+
+		snapshotID := r.layout.parseSegmentID(p)
+		if snapshotID == "" || seenSnap[snapshotID] {
+			continue
+		}
+
+		manifestPartition := r.layout.parsePartitionFromManifest(p)
+
+		// Skip canonical manifests in partition-aware layouts (same logic as ListManifests).
+		if r.layout.supportsPartitions() && manifestPartition == "" {
+			continue
+		}
+
+		seenSnap[snapshotID] = true
+
+		// Load each manifest once — the only Get per manifest.
+		manifest, err := r.loadManifest(ctx, p)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load manifest for snapshot %s: %w", ref.ID, err)
+			return nil, fmt.Errorf("failed to load manifest %s: %w", p, err)
 		}
 
 		for _, f := range manifest.Files {
 			partPath := r.layout.extractPartitionPath(f.Path)
-			if partPath == "" || seen[partPath] {
+			if partPath == "" || seenPart[partPath] {
 				continue
 			}
-			seen[partPath] = true
+			seenPart[partPath] = true
 			partitions = append(partitions, PartitionRef{Path: partPath})
 
 			if opts.Limit > 0 && len(partitions) >= opts.Limit {
 				return partitions, nil
 			}
 		}
+	}
+
+	if !hasAnyManifest {
+		return nil, ErrNotFound
 	}
 
 	return partitions, nil

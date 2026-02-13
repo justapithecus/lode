@@ -401,8 +401,9 @@ proportional to dataset/volume size on remote stores (S3/R2).
 | Blocks sorted in manifest | `TestVolume_Commit_BlocksSortedInManifest` |
 | Block merge correctness | `TestMergeBlocks` (4 subtests) |
 | Binary search: sorted input | `TestFindCoveringBlocks_BinarySearch` (6 subtests) |
-| Unsorted overlap detection | `TestVolume_ValidateNoOverlaps_UnsortedInput` |
-| Unsorted overlap rejection | `TestVolume_ValidateNoOverlaps_UnsortedOverlap` |
+| Sorted overlap detection | `TestVolume_ValidateNoOverlaps_SortedInput` |
+| Sorted overlap rejection | `TestVolume_ValidateNoOverlaps_SortedOverlap` |
+| Load-time block sorting | `TestVolume_LoadSnapshot_SortsBlocksAtLoadTime` |
 
 **Pointer Verification**: Corrupt/stale pointers fall back correctly.
 
@@ -439,17 +440,17 @@ proportional to dataset/volume size on remote stores (S3/R2).
 | `BenchmarkFindCoveringBlocks` | O(log B) lookup at 10/100/1K/10K blocks |
 | `BenchmarkMergeBlocks` | O(N + K log K) merge at 10/100/1K/10K existing blocks |
 
-### Complexity Violations (tracked tech debt)
+### Complexity Violations (all resolved)
 
-| ID | Operation | Required | Current | Priority |
-|----|-----------|----------|---------|----------|
-| CX-1 | `findCoveringBlocks` sort check | O(log B + R) per read | O(B) per read | Critical |
-| CX-2 | `ListManifests` deserialization | path-only IDs + validation | O(M) full deser | High |
-| CX-3 | `ListPartitions` double deser | single-pass manifests | O(2M) Gets | High |
-| CX-4 | `findSnapshotByID` fallback | O(1) canonical Get | O(N) scan | Medium |
-| CX-5 | `Write` partitioned memory | O(R + encoded) | O(3R) | Medium |
-| CX-6 | `Volume.Snapshots` validation | O(S × B_avg) | + redundant sort checks | Medium |
-| CX-7 | `fsStore.List` Walk vs WalkDir | O(N) readdir | O(N) stat | Low |
+| ID | Operation | Resolution | Test |
+|----|-----------|------------|------|
+| CX-1 | `findCoveringBlocks` sort check | Fixed: sort at load time | `TestVolume_LoadSnapshot_SortsBlocksAtLoadTime` |
+| CX-2 | `ListManifests` validation Gets | Reclassified: inherent cost (CONTRACT_ERRORS.md) | — |
+| CX-3 | `ListPartitions` double deser | Fixed: single-pass (1 List + M Gets) | `TestDatasetReader_ListPartitions_SingleManifestLoad` |
+| CX-4 | `Snapshot(id)` degraded fallback | Reclassified: documented degraded path | — |
+| CX-5 | `Write` partitioned memory | Reclassified: O(R aliases), not O(3R copies) | — |
+| CX-6 | `Volume.Snapshots` sort checks | Fixed: sort at load time | `TestVolume_LoadSnapshot_SortsBlocksAtLoadTime` |
+| CX-7 | `fsStore.List` Walk vs WalkDir | Fixed: `filepath.WalkDir` | Existing `fsStore.List` tests |
 
 ### Documented Inherent Costs (not violations)
 
@@ -461,6 +462,9 @@ proportional to dataset/volume size on remote stores (S3/R2).
 | `Volume.Commit` manifest | O(B) per commit | Cumulative design |
 | `Dataset.Read(id)` | O(R_total) memory | Returns all records |
 | `latestByScan` | O(N) List | Backward-compat; self-heals via pointer write |
+| `ListManifests` validation | M Gets | Contractually required by CONTRACT_ERRORS.md (CX-2) |
+| `Snapshot(id)` fallback | O(N) scan | Degraded path for pre-canonical data; self-heals (CX-4) |
+| `Write` partitioned memory | O(R interface aliases) | Partition map holds references, not copies (CX-5) |
 
 ---
 

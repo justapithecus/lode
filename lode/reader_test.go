@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -573,6 +574,69 @@ func TestDatasetReader_ListDatasets_FSStore_EmptyStorage_ReturnsEmptyList(t *tes
 	}
 	if len(datasets) != 0 {
 		t.Errorf("expected empty list, got: %v", datasets)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// G5: Complexity verification tests
+// -----------------------------------------------------------------------------
+
+// TestDatasetReader_ListPartitions_SingleManifestLoad verifies that ListPartitions
+// loads each manifest exactly once (M Gets), not twice (2M Gets via ListManifests + GetManifest).
+func TestDatasetReader_ListPartitions_SingleManifestLoad(t *testing.T) {
+	inner := NewMemory()
+	fs := newFaultStore(inner)
+	factory := newFaultStoreFactory(fs)
+
+	// Write two snapshots with hive-partitioned data.
+	ds, err := NewDataset("test-ds", factory,
+		WithCodec(NewJSONLCodec()),
+		WithHiveLayout("day"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	records1 := R(D{"id": 1, "day": "2024-01-15"})
+	if _, err := ds.Write(t.Context(), records1, Metadata{}); err != nil {
+		t.Fatal(err)
+	}
+
+	records2 := R(D{"id": 2, "day": "2024-01-16"})
+	if _, err := ds.Write(t.Context(), records2, Metadata{}); err != nil {
+		t.Fatal(err)
+	}
+
+	reader, err := NewDatasetReader(factory, WithHiveLayout("day"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Reset call tracking before the operation under test.
+	fs.Reset()
+
+	partitions, err := reader.ListPartitions(t.Context(), "test-ds", PartitionListOptions{})
+	if err != nil {
+		t.Fatalf("ListPartitions failed: %v", err)
+	}
+	if len(partitions) == 0 {
+		t.Fatal("expected at least one partition")
+	}
+
+	// Count manifest Get calls (paths ending in manifest.json).
+	getCalls := fs.GetCalls()
+	manifestGets := 0
+	for _, p := range getCalls {
+		if strings.HasSuffix(p, "manifest.json") {
+			manifestGets++
+		}
+	}
+
+	// With single-pass, we expect exactly 2 Gets (one per snapshot manifest),
+	// not 4 (which the old ListManifests + GetManifest path would produce).
+	// There are 2 snapshots × 2 partition manifests each = 4 partition manifests,
+	// but deduplicated by snapshot ID = 2 manifests loaded.
+	if manifestGets != 2 {
+		t.Errorf("expected exactly 2 manifest Gets (single-pass), got %d", manifestGets)
 	}
 }
 

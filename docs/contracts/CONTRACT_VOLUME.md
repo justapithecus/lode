@@ -337,7 +337,7 @@ Cumulative manifest size is O(B). This is inherent in the cumulative design.
 | `ReadAt` | 1 Get + R ReadRange | O(L) | **O(log B + R)** |
 | `Latest` | 2 (pointer + manifest) | O(B) | O(1) |
 | `Snapshot(id)` | 1 Get | O(B) | O(B) validation |
-| `Snapshots` | 1 List + S Gets | O(S × B_avg) | O(S log S) |
+| `Snapshots` | 1 List + S Gets | O(S × B_avg) | O(S × B_avg + S log S) |
 
 Block lookup MUST be O(log B + R) where R is covering blocks.
 Implementations MUST NOT perform per-read sorted-ness checks.
