@@ -309,12 +309,12 @@ Each example is self-contained and runnable. See the example source for detailed
 
 ## Status
 
-Lode is at **v0.7.3** and under active development.
+Lode is at **v0.7.4** and under active development.
 APIs are stabilizing; some changes are possible before v1.0.
 
-v0.7.3 introduces O(1) snapshot resolution (persistent latest pointer),
-O(log B) volume block lookups, and eliminates all known O(N) hotspots on remote stores.
-No API changes; existing data is compatible without migration.
+v0.7.4 adds a complexity bounds contract documenting the cost of every public
+method, resolves all known complexity violations, and improves internal code
+quality. No API changes; existing data is compatible without migration.
 
 If you are evaluating Lode, focus on:
 - snapshot semantics (Dataset and Volume)
