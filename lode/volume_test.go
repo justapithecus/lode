@@ -1738,10 +1738,10 @@ func TestVolume_Commit_StaleButExistingPointer_UsesInMemoryCache(t *testing.T) {
 	}
 }
 
-// TestVolume_Commit_ColdStart_StalePointer_CorrectedByProtocol verifies that
-// the pointer-before-manifest protocol prevents stale-but-existing pointers
-// from breaking linear history across process restarts (cold starts).
-func TestVolume_Commit_ColdStart_StalePointer_CorrectedByProtocol(t *testing.T) {
+// TestVolume_Commit_ColdStart_ReadsPointerFromStore verifies that a new
+// Volume instance (cold start with no in-memory cache) resolves the correct
+// parent by reading the persistent pointer from the store.
+func TestVolume_Commit_ColdStart_ReadsPointerFromStore(t *testing.T) {
 	mem := NewMemory()
 
 	// Process A: commit 3 snapshots.

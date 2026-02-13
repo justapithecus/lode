@@ -417,10 +417,10 @@ proportional to dataset/volume size on remote stores (S3/R2).
 
 | Requirement | Test |
 |-------------|------|
-| Dataset: cold start reads correct pointer | `TestDataset_Write_ColdStart_StalePointer_CorrectedByProtocol` |
+| Dataset: cold start reads correct pointer | `TestDataset_Write_ColdStart_ReadsPointerFromStore` |
 | Dataset: cold start with corrupt pointer → scan fallback | `TestDataset_Write_ColdStart_CorruptPointer_FallsBackToScan` |
 | Dataset: pointer write failure aborts commit | `TestDataset_Write_PointerWriteFailure_AbortsCommit` |
-| Volume: cold start reads correct pointer | `TestVolume_Commit_ColdStart_StalePointer_CorrectedByProtocol` |
+| Volume: cold start reads correct pointer | `TestVolume_Commit_ColdStart_ReadsPointerFromStore` |
 | Volume: cold start with corrupt pointer → scan fallback | `TestVolume_Commit_ColdStart_CorruptPointer_FallsBackToScan` |
 | Volume: pointer write failure aborts commit | `TestVolume_Commit_PointerWriteFailure_AbortsCommit` |
 

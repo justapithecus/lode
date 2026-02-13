@@ -2736,19 +2736,10 @@ func TestDataset_Write_StaleButExistingPointer_UsesInMemoryCache(t *testing.T) {
 	}
 }
 
-// TestDataset_Write_ColdStart_StalePointer_CorrectedByProtocol verifies that
-// the pointer-before-manifest protocol prevents stale-but-existing pointers
-// from breaking linear history across process restarts (cold starts).
-//
-// Scenario: Process A writes snap-1, snap-2, snap-3. We simulate a pointer
-// stuck on snap-1 (as if pointer writes for snap-2/snap-3 failed). Process B
-// (new Dataset instance, no in-memory cache) writes snap-4.
-//
-// With pointer-before-manifest, this scenario cannot arise naturally because
-// pointer write failure aborts the commit. But we test defensive behavior:
-// the Exists check + scan fallback must produce the correct parent even on
-// cold start with a stale pointer.
-func TestDataset_Write_ColdStart_StalePointer_CorrectedByProtocol(t *testing.T) {
+// TestDataset_Write_ColdStart_ReadsPointerFromStore verifies that a new
+// Dataset instance (cold start with no in-memory cache) resolves the correct
+// parent by reading the persistent pointer from the store.
+func TestDataset_Write_ColdStart_ReadsPointerFromStore(t *testing.T) {
 	mem := NewMemory()
 
 	// Process A: write 3 snapshots.
