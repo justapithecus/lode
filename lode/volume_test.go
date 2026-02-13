@@ -1310,31 +1310,32 @@ func TestVolume_ValidateNoOverlaps_OverlapAtHighOffset(t *testing.T) {
 	}
 }
 
-func TestVolume_ValidateNoOverlaps_UnsortedInput(t *testing.T) {
-	// Backward compat: blocks that are not sorted by offset should still
-	// be validated correctly (defensive sort kicks in).
+func TestVolume_ValidateNoOverlaps_SortedInput(t *testing.T) {
+	// validateNoOverlaps requires sorted input (sorting now happens at load time
+	// in validateVolumeManifest). Verify it accepts non-overlapping sorted blocks.
 	blocks := []BlockRef{
-		{Offset: 20, Length: 10, Path: "c.bin"},
 		{Offset: 0, Length: 10, Path: "a.bin"},
 		{Offset: 10, Length: 10, Path: "b.bin"},
+		{Offset: 20, Length: 10, Path: "c.bin"},
 	}
 
 	err := validateNoOverlaps(blocks)
 	if err != nil {
-		t.Fatalf("expected no overlap for non-overlapping unsorted blocks, got: %v", err)
+		t.Fatalf("expected no overlap for non-overlapping sorted blocks, got: %v", err)
 	}
 }
 
-func TestVolume_ValidateNoOverlaps_UnsortedOverlap(t *testing.T) {
-	// Unsorted blocks that overlap should still be detected.
+func TestVolume_ValidateNoOverlaps_SortedOverlap(t *testing.T) {
+	// validateNoOverlaps requires sorted input. Verify it detects overlaps
+	// in sorted blocks.
 	blocks := []BlockRef{
-		{Offset: 15, Length: 10, Path: "b.bin"},
 		{Offset: 0, Length: 20, Path: "a.bin"},
+		{Offset: 15, Length: 10, Path: "b.bin"},
 	}
 
 	err := validateNoOverlaps(blocks)
 	if !errors.Is(err, ErrOverlappingBlocks) {
-		t.Fatalf("expected ErrOverlappingBlocks for unsorted overlapping blocks, got: %v", err)
+		t.Fatalf("expected ErrOverlappingBlocks for sorted overlapping blocks, got: %v", err)
 	}
 }
 
@@ -1498,11 +1499,11 @@ func TestFindCoveringBlocks_BinarySearch(t *testing.T) {
 			wantErr: ErrRangeMissing,
 		},
 		{
-			name: "unsorted blocks (backward compat)",
+			name: "sorted input (blocks sorted at load time)",
 			blocks: []BlockRef{
-				{Offset: 20, Length: 10},
 				{Offset: 0, Length: 10},
 				{Offset: 10, Length: 10},
+				{Offset: 20, Length: 10},
 			},
 			offset: 0, length: 30,
 			wantN: 3,
@@ -1938,6 +1939,48 @@ func TestVolume_Commit_PointerWriteFailure_AbortsCommit(t *testing.T) {
 	}
 	if snap3.Manifest.ParentSnapshotID != snap1.ID {
 		t.Errorf("expected parent %s, got %s", snap1.ID, snap3.Manifest.ParentSnapshotID)
+	}
+}
+
+// TestVolume_LoadSnapshot_SortsBlocksAtLoadTime verifies that blocks in a manifest
+// written with unsorted offsets are sorted at load time by validateVolumeManifest.
+func TestVolume_LoadSnapshot_SortsBlocksAtLoadTime(t *testing.T) {
+	store := NewMemory()
+	ctx := t.Context()
+
+	// Write a manifest with intentionally unsorted blocks.
+	m := &VolumeManifest{
+		SchemaName:    volumeManifestSchemaName,
+		FormatVersion: volumeManifestFormatVersion,
+		VolumeID:      "test-vol",
+		SnapshotID:    "snap-unsorted",
+		CreatedAt:     time.Now().UTC(),
+		Metadata:      Metadata{},
+		TotalLength:   100,
+		Blocks: []BlockRef{
+			{Offset: 20, Length: 10, Path: volumeBlockPath("test-vol", 20, 10)},
+			{Offset: 0, Length: 10, Path: volumeBlockPath("test-vol", 0, 10)},
+			{Offset: 10, Length: 10, Path: volumeBlockPath("test-vol", 10, 10)},
+		},
+	}
+	writeVolumeManifest(ctx, t, store, m)
+
+	vol := newTestVolume(t, "test-vol", NewMemoryFactoryFrom(store), 100)
+	snap, err := vol.Snapshot(ctx, "snap-unsorted")
+	if err != nil {
+		t.Fatalf("Snapshot failed: %v", err)
+	}
+
+	// Verify blocks are sorted by offset after load.
+	blocks := snap.Manifest.Blocks
+	if len(blocks) != 3 {
+		t.Fatalf("expected 3 blocks, got %d", len(blocks))
+	}
+	for i := 1; i < len(blocks); i++ {
+		if blocks[i].Offset <= blocks[i-1].Offset {
+			t.Fatalf("blocks not sorted at load time: [%d].Offset=%d <= [%d].Offset=%d",
+				i, blocks[i].Offset, i-1, blocks[i-1].Offset)
+		}
 	}
 }
 

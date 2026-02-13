@@ -339,28 +339,18 @@ func mergeBlocks(sorted, unsorted []BlockRef) []BlockRef {
 }
 
 // validateNoOverlaps checks that blocks do not overlap in the cumulative set.
-// Blocks are expected to be sorted by Offset (Commit sorts before calling).
-// For backward compat, falls back to a defensive copy-and-sort if needed.
+// Blocks MUST be sorted by Offset before calling. Callers:
+//   - validateVolumeManifest: sorts at load time
+//   - Commit: receives output of mergeBlocks (always sorted)
 func validateNoOverlaps(blocks []BlockRef) error {
 	if len(blocks) <= 1 {
 		return nil
 	}
 
-	sorted := blocks
-	if !sort.SliceIsSorted(sorted, func(i, j int) bool {
-		return sorted[i].Offset < sorted[j].Offset
-	}) {
-		sorted = make([]BlockRef, len(blocks))
-		copy(sorted, blocks)
-		sort.Slice(sorted, func(i, j int) bool {
-			return sorted[i].Offset < sorted[j].Offset
-		})
-	}
-
-	for i := 1; i < len(sorted); i++ {
-		// Overflow-safe: equivalent to sorted[i-1].Offset + sorted[i-1].Length > sorted[i].Offset.
-		// Safe because sorted is in ascending Offset order, so the subtraction is non-negative.
-		if sorted[i-1].Length > sorted[i].Offset-sorted[i-1].Offset {
+	for i := 1; i < len(blocks); i++ {
+		// Overflow-safe: equivalent to blocks[i-1].Offset + blocks[i-1].Length > blocks[i].Offset.
+		// Safe because blocks is in ascending Offset order, so the subtraction is non-negative.
+		if blocks[i-1].Length > blocks[i].Offset-blocks[i-1].Offset {
 			return ErrOverlappingBlocks
 		}
 	}
@@ -422,37 +412,23 @@ func (v *volume) ReadAt(ctx context.Context, snapshotID VolumeSnapshotID, offset
 // findCoveringBlocks returns the blocks that fully cover [offset, offset+length).
 // Returns ErrRangeMissing if any sub-range is not covered.
 //
-// Blocks are expected to be sorted by Offset (guaranteed for manifests written
-// after the sorted-commit fix). Uses binary search for O(log B + R) where R is
-// the number of covering blocks. For backward compat with unsorted manifests,
-// falls back to a defensive copy-and-sort.
+// Blocks MUST be sorted by Offset (guaranteed by validateVolumeManifest at load time).
+// Uses binary search for O(log B + R) where R is the number of covering blocks.
 func findCoveringBlocks(blocks []BlockRef, offset, length int64) ([]BlockRef, error) {
 	requestEnd := offset + length
 
-	// Defensive: sort a copy if blocks are not already sorted (backward compat).
-	sorted := blocks
-	if !sort.SliceIsSorted(sorted, func(i, j int) bool {
-		return sorted[i].Offset < sorted[j].Offset
-	}) {
-		sorted = make([]BlockRef, len(blocks))
-		copy(sorted, blocks)
-		sort.Slice(sorted, func(i, j int) bool {
-			return sorted[i].Offset < sorted[j].Offset
-		})
-	}
-
 	// Binary search: find first block whose end exceeds the requested offset.
-	start := sort.Search(len(sorted), func(i int) bool {
-		return sorted[i].Offset+sorted[i].Length > offset
+	start := sort.Search(len(blocks), func(i int) bool {
+		return blocks[i].Offset+blocks[i].Length > offset
 	})
 
 	// Collect relevant blocks (walk forward from start).
 	var relevant []BlockRef
-	for i := start; i < len(sorted); i++ {
-		if sorted[i].Offset >= requestEnd {
+	for i := start; i < len(blocks); i++ {
+		if blocks[i].Offset >= requestEnd {
 			break
 		}
-		relevant = append(relevant, sorted[i])
+		relevant = append(relevant, blocks[i])
 	}
 
 	// Verify contiguous coverage from offset to requestEnd.
@@ -670,6 +646,17 @@ func validateVolumeManifest(m *VolumeManifest) error {
 				Message: fmt.Sprintf("exceeds total_length (offset=%d, length=%d, total_length=%d)", b.Offset, b.Length, m.TotalLength),
 			}
 		}
+	}
+
+	// Sort blocks by offset at load time so downstream consumers
+	// (findCoveringBlocks, validateNoOverlaps) can assume sorted input.
+	// One-time O(B log B) amortized across all reads.
+	if !sort.SliceIsSorted(m.Blocks, func(i, j int) bool {
+		return m.Blocks[i].Offset < m.Blocks[j].Offset
+	}) {
+		sort.Slice(m.Blocks, func(i, j int) bool {
+			return m.Blocks[i].Offset < m.Blocks[j].Offset
+		})
 	}
 
 	if err := validateNoOverlaps(m.Blocks); err != nil {

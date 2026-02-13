@@ -1,6 +1,6 @@
 # Lode Complexity Bounds — Contract
 
-Status: Draft (v0.7). Enforced when all known violations are resolved.
+Status: Active (v0.7). All known violations resolved.
 
 ---
 
@@ -93,7 +93,7 @@ Parent resolution MUST NOT use List when a valid pointer exists.
 |-----------|------|-------------|--------|
 | ListDatasets | Cold | 1 List | O(N) |
 | ListManifests | Cold | 1 List + M Gets (validation) | O(N + M × manifest) |
-| ListPartitions | Cold | 1 List + 2M Gets | O(N + M × manifest) |
+| ListPartitions | Cold | 1 List + M Gets | O(N + M × manifest) |
 | GetManifest | Hot | 1 Get | O(manifest) |
 | OpenObject | Hot | 1 Get | O(1) stream |
 
@@ -128,17 +128,34 @@ ReadAt block lookup MUST be O(log B + R). Per-read sort checks MUST NOT exist.
 
 ---
 
-## Known Violations
+## Resolved Violations
 
-| ID | Operation | Required | Current | Severity |
-|----|-----------|----------|---------|----------|
-| CX-1 | ReadAt sort check | O(log B + R) | O(B) per read | Critical |
-| CX-2 | ListManifests deser. | path-only IDs | O(M) Gets | High |
-| CX-3 | ListPartitions | single pass | O(2M) Gets | High |
-| CX-4 | findSnapshotByID | O(1) Get | O(N) scan fallback | Medium |
-| CX-5 | Write memory (partitioned) | O(R + encoded) | O(3R) | Medium |
-| CX-6 | Volume.Snapshots validation | O(S × B_avg) | O(S × B_avg) + redundant sort checks | Medium |
-| CX-7 | fsStore.List | O(N) readdir | O(N) stat via Walk | Low |
+All known violations have been addressed. Four were fixed in code; three were reclassified as inherent costs.
+
+| ID | Operation | Resolution |
+|----|-----------|------------|
+| CX-1 | `findCoveringBlocks` sort check | Fixed: sort at load time in `validateVolumeManifest` |
+| CX-2 | `ListManifests` validation Gets | Reclassified: contractually required by CONTRACT_ERRORS.md |
+| CX-3 | `ListPartitions` double deser | Fixed: single-pass (1 List + M Gets) |
+| CX-4 | `Snapshot(id)` degraded fallback | Reclassified: documented degraded path, not hot-path violation |
+| CX-5 | `Write` partitioned memory | Reclassified: O(R interface aliases), not O(3R copies) |
+| CX-6 | `Volume.Snapshots` sort checks | Fixed: sort at load time eliminates redundant checks |
+| CX-7 | `fsStore.List` Walk vs WalkDir | Fixed: `filepath.WalkDir` avoids per-entry `os.Stat` |
+
+### Reclassification Notes
+
+**CX-2** (`ListManifests` validation Gets): CONTRACT_ERRORS.md requires that `ListManifests`
+returns errors (not skips) when manifest validation fails. The M Gets for validation are
+contractually mandated. Snapshot IDs are already extracted from paths; the Gets are purely
+for validation.
+
+**CX-4** (`Snapshot(id)` degraded fallback): The complexity contract classifies this as a
+`Degraded` path. Code tries the canonical path first (O(1) Get), and only falls back to
+scan for pre-canonical data. This is backward-compat behavior, not a hot-path violation.
+
+**CX-5** (Write partitioned memory): `partitionRecords` creates interface aliases (not copies)
+of records. Peak memory is O(R interface values) + O(encoded per partition). The partition map
+references are 16 bytes per record — negligible relative to actual record data.
 
 ---
 

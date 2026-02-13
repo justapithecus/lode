@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -122,14 +123,14 @@ func (f *fsStore) List(_ context.Context, prefix string) ([]string, error) {
 
 	var paths []string
 
-	err = filepath.Walk(searchPath, func(path string, info os.FileInfo, err error) error {
+	err = filepath.WalkDir(searchPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if os.IsNotExist(err) {
 				return nil
 			}
 			return err
 		}
-		if !info.IsDir() {
+		if !d.IsDir() {
 			relPath, err := filepath.Rel(f.root, path)
 			if err != nil {
 				return err
