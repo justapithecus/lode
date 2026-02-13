@@ -284,13 +284,18 @@ func (v *volume) Commit(ctx context.Context, blocks []BlockRef, metadata Metadat
 		return nil, fmt.Errorf("lode: failed to marshal volume manifest: %w", err)
 	}
 
+	// Pointer must be written before manifest to prevent stale-but-existing
+	// pointers on cold start. If this fails, no manifest is written and the
+	// commit is aborted. A pointer referencing a not-yet-existing snapshot is
+	// harmless (Exists check falls through to scan on the next cold start).
+	if err := v.writeLatestPointer(ctx, snapshotID); err != nil {
+		return nil, fmt.Errorf("lode: failed to update latest pointer: %w", err)
+	}
+
 	manifestPath := volumeManifestPath(v.id, snapshotID)
 	if err := v.store.Put(ctx, manifestPath, bytes.NewReader(manifestData)); err != nil {
 		return nil, fmt.Errorf("lode: failed to write volume manifest: %w", err)
 	}
-
-	// Best-effort: manifest is the commit signal; pointer is an optimization.
-	_ = v.writeLatestPointer(ctx, snapshotID)
 	v.lastSnapshotID = snapshotID
 
 	return &VolumeSnapshot{

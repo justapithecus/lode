@@ -413,6 +413,17 @@ proportional to dataset/volume size on remote stores (S3/R2).
 | Dataset: existing-but-stale pointer → in-memory cache wins | `TestDataset_Write_StaleButExistingPointer_UsesInMemoryCache` |
 | Volume: existing-but-stale pointer → in-memory cache wins | `TestVolume_Commit_StaleButExistingPointer_UsesInMemoryCache` |
 
+**Cross-Process / Cold-Start Pointer**: Pointer correctness across process restarts.
+
+| Requirement | Test |
+|-------------|------|
+| Dataset: cold start reads correct pointer | `TestDataset_Write_ColdStart_StalePointer_CorrectedByProtocol` |
+| Dataset: cold start with corrupt pointer → scan fallback | `TestDataset_Write_ColdStart_CorruptPointer_FallsBackToScan` |
+| Dataset: pointer write failure aborts commit | `TestDataset_Write_PointerWriteFailure_AbortsCommit` |
+| Volume: cold start reads correct pointer | `TestVolume_Commit_ColdStart_StalePointer_CorrectedByProtocol` |
+| Volume: cold start with corrupt pointer → scan fallback | `TestVolume_Commit_ColdStart_CorruptPointer_FallsBackToScan` |
+| Volume: pointer write failure aborts commit | `TestVolume_Commit_PointerWriteFailure_AbortsCommit` |
+
 **Hive Canonical Manifest**: Canonical manifest excluded from listing.
 
 | Requirement | Test |

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -1734,6 +1735,209 @@ func TestVolume_Commit_StaleButExistingPointer_UsesInMemoryCache(t *testing.T) {
 	// Cumulative blocks should include all three.
 	if len(snap3.Manifest.Blocks) != 3 {
 		t.Errorf("expected 3 cumulative blocks, got %d", len(snap3.Manifest.Blocks))
+	}
+}
+
+// TestVolume_Commit_ColdStart_StalePointer_CorrectedByProtocol verifies that
+// the pointer-before-manifest protocol prevents stale-but-existing pointers
+// from breaking linear history across process restarts (cold starts).
+func TestVolume_Commit_ColdStart_StalePointer_CorrectedByProtocol(t *testing.T) {
+	mem := NewMemory()
+
+	// Process A: commit 3 snapshots.
+	volA, err := NewVolume("test-vol", NewMemoryFactoryFrom(mem), 1024*1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block1, err := volA.StageWriteAt(t.Context(), 0, bytes.NewReader([]byte("block-1")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap1, err := volA.Commit(t.Context(), []BlockRef{block1}, Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	block2, err := volA.StageWriteAt(t.Context(), 100, bytes.NewReader([]byte("block-2")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = volA.Commit(t.Context(), []BlockRef{block2}, Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	block3, err := volA.StageWriteAt(t.Context(), 200, bytes.NewReader([]byte("block-3")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap3, err := volA.Commit(t.Context(), []BlockRef{block3}, Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify pointer is on snap3 (protocol ensures this).
+	rc, err := mem.Get(t.Context(), "volumes/test-vol/latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := io.ReadAll(rc)
+	_ = rc.Close()
+	if string(data) != string(snap3.ID) {
+		t.Fatalf("pointer should track snap3, got %q", string(data))
+	}
+
+	// Process B: cold start (new Volume instance, empty in-memory cache).
+	volB, err := NewVolume("test-vol", NewMemoryFactoryFrom(mem), 1024*1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block4, err := volB.StageWriteAt(t.Context(), 300, bytes.NewReader([]byte("block-4")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap4, err := volB.Commit(t.Context(), []BlockRef{block4}, Metadata{})
+	if err != nil {
+		t.Fatalf("cold-start commit should succeed: %v", err)
+	}
+
+	// snap4 must have snap3 as parent (pointer is correct).
+	if snap4.Manifest.ParentSnapshotID != snap3.ID {
+		t.Errorf("expected parent %s, got %s (snap1=%s)",
+			snap3.ID, snap4.Manifest.ParentSnapshotID, snap1.ID)
+	}
+	// Cumulative blocks should include all four.
+	if len(snap4.Manifest.Blocks) != 4 {
+		t.Errorf("expected 4 cumulative blocks, got %d", len(snap4.Manifest.Blocks))
+	}
+}
+
+// TestVolume_Commit_ColdStart_CorruptPointer_FallsBackToScan verifies that
+// a new Volume instance (cold start) with a corrupt pointer correctly falls
+// back to scan.
+func TestVolume_Commit_ColdStart_CorruptPointer_FallsBackToScan(t *testing.T) {
+	mem := NewMemory()
+
+	// Process A: commit 2 snapshots.
+	volA, err := NewVolume("test-vol", NewMemoryFactoryFrom(mem), 1024*1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block1, err := volA.StageWriteAt(t.Context(), 0, bytes.NewReader([]byte("block-1")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = volA.Commit(t.Context(), []BlockRef{block1}, Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	block2, err := volA.StageWriteAt(t.Context(), 100, bytes.NewReader([]byte("block-2")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap2, err := volA.Commit(t.Context(), []BlockRef{block2}, Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Corrupt the pointer to reference a nonexistent snapshot.
+	pointerPath := "volumes/test-vol/latest"
+	if err := mem.Delete(t.Context(), pointerPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.Put(t.Context(), pointerPath, bytes.NewReader([]byte("nonexistent-snap-id"))); err != nil {
+		t.Fatal(err)
+	}
+
+	// Process B: cold start with corrupt pointer.
+	volB, err := NewVolume("test-vol", NewMemoryFactoryFrom(mem), 1024*1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block3, err := volB.StageWriteAt(t.Context(), 200, bytes.NewReader([]byte("block-3")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap3, err := volB.Commit(t.Context(), []BlockRef{block3}, Metadata{})
+	if err != nil {
+		t.Fatalf("cold-start commit with corrupt pointer should succeed: %v", err)
+	}
+
+	// snap3 must have snap2 as parent (from scan fallback).
+	if snap3.Manifest.ParentSnapshotID != snap2.ID {
+		t.Errorf("expected parent %s (from scan), got %s", snap2.ID, snap3.Manifest.ParentSnapshotID)
+	}
+	// Cumulative blocks should include all three.
+	if len(snap3.Manifest.Blocks) != 3 {
+		t.Errorf("expected 3 cumulative blocks, got %d", len(snap3.Manifest.Blocks))
+	}
+}
+
+// TestVolume_Commit_PointerWriteFailure_AbortsCommit verifies that when
+// writeLatestPointer fails, the commit is aborted and no manifest is written.
+func TestVolume_Commit_PointerWriteFailure_AbortsCommit(t *testing.T) {
+	fs := newFaultStore(NewMemory())
+	factory := newFaultStoreFactory(fs)
+
+	vol, err := NewVolume("test-vol", factory, 1024*1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// First commit succeeds.
+	block1, err := vol.StageWriteAt(t.Context(), 0, bytes.NewReader([]byte("block-1")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap1, err := vol.Commit(t.Context(), []BlockRef{block1}, Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Inject Put error only on the "latest" pointer path.
+	fs.mu.Lock()
+	fs.putErr = errors.New("injected: pointer write failure")
+	fs.putErrMatch = "latest"
+	fs.mu.Unlock()
+
+	// Record Put calls before the failed commit.
+	fs.Reset()
+
+	// Second commit should fail because pointer write is required.
+	block2, err := vol.StageWriteAt(t.Context(), 100, bytes.NewReader([]byte("block-2")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = vol.Commit(t.Context(), []BlockRef{block2}, Metadata{})
+	if err == nil {
+		t.Fatal("expected commit to fail when pointer write fails")
+	}
+
+	// Verify no manifest was written.
+	putCalls := fs.PutCalls()
+	for _, p := range putCalls {
+		if strings.Contains(p, "manifest.json") {
+			t.Errorf("manifest should not be written when pointer fails, but saw Put(%s)", p)
+		}
+	}
+
+	// Clear the error and commit again — should succeed with snap-1 as parent.
+	fs.mu.Lock()
+	fs.putErr = nil
+	fs.putErrMatch = ""
+	fs.mu.Unlock()
+
+	block2b, err := vol.StageWriteAt(t.Context(), 100, bytes.NewReader([]byte("block-2b")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap3, err := vol.Commit(t.Context(), []BlockRef{block2b}, Metadata{})
+	if err != nil {
+		t.Fatalf("commit after clearing error should succeed: %v", err)
+	}
+	if snap3.Manifest.ParentSnapshotID != snap1.ID {
+		t.Errorf("expected parent %s, got %s", snap1.ID, snap3.Manifest.ParentSnapshotID)
 	}
 }
 

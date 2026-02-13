@@ -407,12 +407,17 @@ func (d *dataset) Write(ctx context.Context, data []any, metadata Metadata) (*Da
 		manifest.ChecksumAlgorithm = d.checksum.Name()
 	}
 
+	// Pointer must be written before manifest to prevent stale-but-existing
+	// pointers on cold start. If this fails, no manifest is written and the
+	// commit is aborted. A pointer referencing a not-yet-existing snapshot is
+	// harmless (Exists check falls through to scan on the next cold start).
+	if err := d.writeLatestPointer(ctx, snapshotID); err != nil {
+		return nil, fmt.Errorf("lode: failed to update latest pointer: %w", err)
+	}
+
 	if err := d.writeManifests(ctx, snapshotID, manifest, partitionKeys); err != nil {
 		return nil, fmt.Errorf("lode: failed to write manifest: %w", err)
 	}
-
-	// Best-effort: manifest is the commit signal; pointer is an optimization.
-	_ = d.writeLatestPointer(ctx, snapshotID)
 	d.lastSnapshotID = snapshotID
 
 	return &DatasetSnapshot{
@@ -796,13 +801,19 @@ func (d *dataset) StreamWriteRecords(ctx context.Context, records RecordIterator
 		manifest.ChecksumAlgorithm = d.checksum.Name()
 	}
 
+	// Pointer must be written before manifest to prevent stale-but-existing
+	// pointers on cold start. If this fails, no manifest is written and the
+	// commit is aborted. A pointer referencing a not-yet-existing snapshot is
+	// harmless (Exists check falls through to scan on the next cold start).
+	if err := d.writeLatestPointer(ctx, snapshotID); err != nil {
+		_ = d.store.Delete(ctx, filePath) // best-effort cleanup
+		return nil, fmt.Errorf("lode: failed to update latest pointer: %w", err)
+	}
+
 	if err := d.writeManifests(ctx, snapshotID, manifest, []string{""}); err != nil {
 		_ = d.store.Delete(ctx, filePath) // best-effort cleanup
 		return nil, fmt.Errorf("lode: failed to write manifest: %w", err)
 	}
-
-	// Best-effort: manifest is the commit signal; pointer is an optimization.
-	_ = d.writeLatestPointer(ctx, snapshotID)
 	d.lastSnapshotID = snapshotID
 
 	return &DatasetSnapshot{
@@ -1215,13 +1226,19 @@ func (sw *streamWriter) Commit(ctx context.Context) (*DatasetSnapshot, error) {
 		manifest.ChecksumAlgorithm = sw.ds.checksum.Name()
 	}
 
+	// Pointer must be written before manifest to prevent stale-but-existing
+	// pointers on cold start. If this fails, no manifest is written and the
+	// commit is aborted. A pointer referencing a not-yet-existing snapshot is
+	// harmless (Exists check falls through to scan on the next cold start).
+	if err := sw.ds.writeLatestPointer(ctx, sw.snapshotID); err != nil {
+		_ = sw.ds.store.Delete(ctx, sw.filePath) // best-effort cleanup
+		return nil, fmt.Errorf("lode: failed to update latest pointer: %w", err)
+	}
+
 	if err := sw.ds.writeManifests(ctx, sw.snapshotID, manifest, []string{""}); err != nil {
 		_ = sw.ds.store.Delete(ctx, sw.filePath) // best-effort cleanup
 		return nil, fmt.Errorf("lode: failed to write manifest: %w", err)
 	}
-
-	// Best-effort: manifest is the commit signal; pointer is an optimization.
-	_ = sw.ds.writeLatestPointer(ctx, sw.snapshotID)
 	sw.ds.lastSnapshotID = sw.snapshotID
 
 	// Mark committed only after full success
