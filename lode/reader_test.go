@@ -631,12 +631,12 @@ func TestDatasetReader_ListPartitions_SingleManifestLoad(t *testing.T) {
 		}
 	}
 
-	// With single-pass, we expect exactly M Gets (one per manifest),
-	// not 2M (which the old ListManifests + GetManifest path would produce).
+	// With single-pass, we expect exactly 2 Gets (one per snapshot manifest),
+	// not 4 (which the old ListManifests + GetManifest path would produce).
 	// There are 2 snapshots × 2 partition manifests each = 4 partition manifests,
 	// but deduplicated by snapshot ID = 2 manifests loaded.
-	if manifestGets > 2 {
-		t.Errorf("expected at most 2 manifest Gets (single-pass), got %d", manifestGets)
+	if manifestGets != 2 {
+		t.Errorf("expected exactly 2 manifest Gets (single-pass), got %d", manifestGets)
 	}
 }
 

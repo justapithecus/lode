@@ -82,7 +82,7 @@ Parent resolution MUST NOT use List when a valid pointer exists.
 | Latest (cold) | Degraded | 1 List + 1 Get | O(N) | O(N) |
 | Snapshot(id) | Hot | 1 Get | O(manifest) | O(1) |
 | Snapshot(id) fallback | Degraded | 1 List + scan | O(N) | O(N) |
-| Snapshots() | Cold | 1 List + S Gets | O(S × manifest) | O(S log S) |
+| Snapshots() | Cold | 1 List + S Gets | O(S × manifest) | O(S × B_avg + S log S) |
 | Read(id) | Hot | 1 + F Gets | O(R_total) | O(R_total) |
 
 ---
@@ -121,7 +121,7 @@ Cumulative manifest size grows O(B) per commit. This is inherent in the cumulati
 | ReadAt | Hot | 1 Get + R ReadRange | O(L) | O(log B + R) |
 | Latest (warm) | Hot | 2 | O(B) | O(1) |
 | Latest (cold) | Degraded | 1 List + 1 Get | O(N + B) | O(N) |
-| Snapshots() | Cold | 1 List + S Gets | O(S × B_avg) | O(S log S) |
+| Snapshots() | Cold | 1 List + S Gets | O(S × B_avg) | O(S × B_avg + S log S) |
 | Snapshot(id) | Hot | 1 Get | O(B) | O(B) |
 
 ReadAt block lookup MUST be O(log B + R). Per-read sort checks MUST NOT exist.
