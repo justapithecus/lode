@@ -29,6 +29,11 @@ type volume struct {
 	// lastSnapshotID guards against stale-but-existing pointers after a
 	// pointer write failure. See dataset.lastSnapshotID for rationale.
 	lastSnapshotID VolumeSnapshotID
+
+	// lastWrittenPointer tracks what we last successfully wrote to the pointer
+	// file. Used as the CAS expected value when the store implements
+	// ConditionalWriter. See dataset.lastWrittenPointer for rationale.
+	lastWrittenPointer string
 }
 
 // NewVolume creates a volume with a fixed total length.
@@ -109,10 +114,26 @@ func (v *volume) readLatestPointer(ctx context.Context) (VolumeSnapshotID, error
 }
 
 // writeLatestPointer persists the snapshot ID as the latest pointer.
-// Uses Delete+Put because Store.Put is no-overwrite.
-func (v *volume) writeLatestPointer(ctx context.Context, id VolumeSnapshotID) error {
+// When the store implements ConditionalWriter, uses CompareAndSwap for
+// optimistic concurrency. Falls back to Delete+Put (single-writer assumption).
+//
+// expected is the current pointer content for CAS (may differ from parentID
+// when the pointer is stale or a previous pointer write failed).
+func (v *volume) writeLatestPointer(ctx context.Context, expected string, newID VolumeSnapshotID) error {
 	pointerPath := volumeLatestPointerPath(v.id)
+	if cw, ok := v.store.(ConditionalWriter); ok {
+		return cw.CompareAndSwap(ctx, pointerPath, expected, string(newID))
+	}
+	// Fallback: Delete+Put (single-writer assumption)
 	_ = v.store.Delete(ctx, pointerPath) // ignore error; path may not exist
+	return v.store.Put(ctx, pointerPath, strings.NewReader(string(newID)))
+}
+
+// overwriteLatestPointer unconditionally writes the pointer via Delete+Put.
+// Used only for best-effort self-heal in latestByScan, not for commit paths.
+func (v *volume) overwriteLatestPointer(ctx context.Context, id VolumeSnapshotID) error {
+	pointerPath := volumeLatestPointerPath(v.id)
+	_ = v.store.Delete(ctx, pointerPath)
 	return v.store.Put(ctx, pointerPath, strings.NewReader(string(id)))
 }
 
@@ -172,7 +193,7 @@ func (v *volume) Commit(ctx context.Context, blocks []BlockRef, metadata Metadat
 		return nil, errors.New("lode: commit must include at least one new block")
 	}
 
-	parentID, existingBlocks, err := v.resolveParent(ctx)
+	parentID, existingBlocks, expectedPointer, err := v.resolveParent(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +270,7 @@ func (v *volume) Commit(ctx context.Context, blocks []BlockRef, metadata Metadat
 	// pointers on cold start. If this fails, no manifest is written and the
 	// commit is aborted. A pointer referencing a not-yet-existing snapshot is
 	// harmless (Exists check falls through to scan on the next cold start).
-	if err := v.writeLatestPointer(ctx, snapshotID); err != nil {
+	if err := v.writeLatestPointer(ctx, expectedPointer, snapshotID); err != nil {
 		return nil, fmt.Errorf("lode: failed to update latest pointer: %w", err)
 	}
 
@@ -258,6 +279,7 @@ func (v *volume) Commit(ctx context.Context, blocks []BlockRef, metadata Metadat
 		return nil, fmt.Errorf("lode: failed to write volume manifest: %w", err)
 	}
 	v.lastSnapshotID = snapshotID
+	v.lastWrittenPointer = string(snapshotID)
 
 	return &VolumeSnapshot{
 		ID:       snapshotID,
@@ -265,19 +287,26 @@ func (v *volume) Commit(ctx context.Context, blocks []BlockRef, metadata Metadat
 	}, nil
 }
 
-// resolveParent finds the most recent committed snapshot for parent chaining.
+// resolveParent finds the most recent committed snapshot for parent chaining
+// and the expected pointer content for CAS writes.
+//
+// Returns:
+//   - parentID: the snapshot ID for the manifest's ParentSnapshotID
+//   - blocks: the parent's cumulative blocks (nil for first commit)
+//   - expectedPointer: what the pointer file currently contains (for CAS)
+//
 // Resolution cascade: in-memory cache → pointer → scan fallback.
 // Returns zero values if no parent exists (first commit).
-func (v *volume) resolveParent(ctx context.Context) (VolumeSnapshotID, []BlockRef, error) {
-	// In-memory cache is authoritative within this process and guards against
-	// stale-but-existing pointers after a pointer write failure.
+func (v *volume) resolveParent(ctx context.Context) (VolumeSnapshotID, []BlockRef, string, error) {
+	// In-memory cache is authoritative within this process.
+	// lastWrittenPointer tracks what the pointer should contain for CAS.
 	if v.lastSnapshotID != "" {
 		snap, snapErr := v.Snapshot(ctx, v.lastSnapshotID)
 		if snapErr == nil {
-			return snap.ID, snap.Manifest.Blocks, nil
+			return snap.ID, snap.Manifest.Blocks, v.lastWrittenPointer, nil
 		}
 		if !errors.Is(snapErr, ErrNotFound) {
-			return "", nil, fmt.Errorf("lode: failed to load snapshot from cache: %w", snapErr)
+			return "", nil, "", fmt.Errorf("lode: failed to load snapshot from cache: %w", snapErr)
 		}
 		// Cache references nonexistent snapshot — fall through to pointer/scan.
 	}
@@ -286,24 +315,30 @@ func (v *volume) resolveParent(ctx context.Context) (VolumeSnapshotID, []BlockRe
 	if pointerErr == nil {
 		snap, snapErr := v.Snapshot(ctx, latestID)
 		if snapErr == nil {
-			return snap.ID, snap.Manifest.Blocks, nil
+			return snap.ID, snap.Manifest.Blocks, string(latestID), nil
 		}
 		if !errors.Is(snapErr, ErrNotFound) {
-			return "", nil, fmt.Errorf("lode: failed to load snapshot from pointer: %w", snapErr)
+			return "", nil, "", fmt.Errorf("lode: failed to load snapshot from pointer: %w", snapErr)
 		}
 		// Pointer references nonexistent snapshot — fall through to scan.
+	}
+
+	// Track what the pointer currently contains for CAS.
+	var currentPointer string
+	if pointerErr == nil {
+		currentPointer = string(latestID) // stale/corrupt content
 	}
 
 	// No cache, no pointer, or stale: fall back to scan for backward compat.
 	latest, scanErr := v.latestByScan(ctx)
 	if scanErr != nil && !errors.Is(scanErr, ErrNoSnapshots) {
-		return "", nil, fmt.Errorf("lode: failed to get latest snapshot: %w", scanErr)
+		return "", nil, "", fmt.Errorf("lode: failed to get latest snapshot: %w", scanErr)
 	}
 	if latest != nil {
-		return latest.ID, latest.Manifest.Blocks, nil
+		return latest.ID, latest.Manifest.Blocks, currentPointer, nil
 	}
 
-	return "", nil, nil
+	return "", nil, currentPointer, nil
 }
 
 // mergeBlocks merges two block slices into a single sorted-by-offset result.
@@ -463,7 +498,16 @@ func (v *volume) Latest(ctx context.Context) (*VolumeSnapshot, error) {
 		// Pointer references a nonexistent snapshot — fall through to scan.
 	}
 
-	return v.latestByScan(ctx)
+	snap, err := v.latestByScan(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Self-heal: write the pointer so subsequent calls are O(1).
+	// Best-effort, bypasses CAS — this is not a commit path.
+	_ = v.overwriteLatestPointer(ctx, snap.ID)
+
+	return snap, nil
 }
 
 // latestByScan finds the latest snapshot via a single List + single Get.
@@ -500,9 +544,6 @@ func (v *volume) latestByScan(ctx context.Context) (*VolumeSnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// Self-heal: write the pointer so subsequent calls are O(1).
-	_ = v.writeLatestPointer(ctx, latestID)
 
 	return snap, nil
 }
