@@ -2028,4 +2028,21 @@ func TestVolume_Commit_ConcurrentConflict(t *testing.T) {
 	if !errors.Is(err, ErrSnapshotConflict) {
 		t.Fatalf("expected ErrSnapshotConflict from v1 (stale cache), got: %v", err)
 	}
+
+	// Documented retry path: re-read Latest(), then re-commit on the same instance.
+	_, err = v1.Latest(t.Context())
+	if err != nil {
+		t.Fatalf("v1 Latest() after conflict: %v", err)
+	}
+
+	// Re-stage and commit. Commit merges parent blocks internally,
+	// so only the new block is passed.
+	block4, err := v1.StageWriteAt(t.Context(), 300, bytes.NewReader([]byte("block-d")))
+	if err != nil {
+		t.Fatalf("v1 stage 3: %v", err)
+	}
+	_, err = v1.Commit(t.Context(), []BlockRef{block4}, Metadata{})
+	if err != nil {
+		t.Fatalf("v1 retry after Latest() should succeed, got: %v", err)
+	}
 }

@@ -556,6 +556,10 @@ func (d *dataset) Latest(ctx context.Context) (*DatasetSnapshot, error) {
 	if err == nil {
 		snap, snapErr := d.Snapshot(ctx, id)
 		if snapErr == nil {
+			// Refresh CAS cache so retries after ErrSnapshotConflict
+			// use the current pointer content, not stale cached values.
+			d.lastSnapshotID = snap.ID
+			d.lastWrittenPointer = string(id)
 			return snap, nil
 		}
 		// Pointer references a nonexistent snapshot — fall through to scan.
@@ -569,6 +573,10 @@ func (d *dataset) Latest(ctx context.Context) (*DatasetSnapshot, error) {
 	// Self-heal: write the pointer so subsequent calls are O(1).
 	// Best-effort, bypasses CAS — this is not a commit path.
 	_ = d.overwriteLatestPointer(ctx, snap.ID)
+
+	// Refresh CAS cache. After self-heal the pointer contains snap.ID.
+	d.lastSnapshotID = snap.ID
+	d.lastWrittenPointer = string(snap.ID)
 
 	return snap, nil
 }

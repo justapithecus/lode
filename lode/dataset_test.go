@@ -2927,4 +2927,15 @@ func TestDataset_Write_ConcurrentConflict(t *testing.T) {
 	if !errors.Is(err, ErrSnapshotConflict) {
 		t.Fatalf("expected ErrSnapshotConflict from ds1 (stale cache), got: %v", err)
 	}
+
+	// Documented retry path: re-read Latest(), then re-commit on the same instance.
+	_, err = ds1.Latest(t.Context())
+	if err != nil {
+		t.Fatalf("ds1 Latest() after conflict: %v", err)
+	}
+
+	_, err = ds1.Write(t.Context(), R(D{"writer": "ds1", "seq": 2}), Metadata{})
+	if err != nil {
+		t.Fatalf("ds1 retry after Latest() should succeed, got: %v", err)
+	}
 }
